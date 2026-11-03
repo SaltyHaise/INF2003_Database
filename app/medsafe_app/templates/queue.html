@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "_macros.html" import alert_line, csrf with context %}
+{% block title %}Review queue{% endblock %}
+{% block content %}
+<div class="split" style="grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr)">
+  <section class="card" style="padding:0">
+    <div class="card-head" style="padding:20px 22px 0">
+      <h2>Waiting for review</h2><span class="muted small">{{ rows|length }} prescription{{ 's' if rows|length != 1 }}</span>
+      <form class="right" method="get"><label class="small row" style="gap:6px">
+        <input type="hidden" name="alerts_first" value="0">
+        <input type="checkbox" name="alerts_first" value="1" {{ 'checked' if alerts_first }} onchange="this.form.submit()"> Alerts first</label></form>
+    </div>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th style="padding-left:22px">Sent</th><th>Patient</th><th>Drug</th><th>Prescriber</th><th>Alerts</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr class="click {{ 'sel' if sel and sel.rx.prescriptionid == r.prescriptionid }}"
+            data-href="{{ url_for('pharmacist.queue', rx=r.prescriptionid, alerts_first='1' if alerts_first else '0') }}">
+          <td style="padding-left:22px" class="nowrap">{{ r.sent_at|when }}</td>
+          <td><b>{{ r.patient_name }}</b><div class="sub mono">{{ r.nric }}</div></td>
+          <td>{{ r.genericname }}<div class="sub">{{ r|dose }}</div></td>
+          <td class="small">{{ r.doctor_name }}</td>
+          <td>{% if r.alerts %}<span class="badge" title="{{ r.major }} major">{{ r.alerts|length }}</span>{% else %}<span class="small" style="color:var(--green-text)">None</span>{% endif %}</td>
+        </tr>
+      {% else %}<tr><td colspan="5" class="empty" style="padding-left:22px">Nothing waiting. New prescriptions appear here.</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+
+  {% if sel %}
+  {% set r = sel.rx %}{% set a = sel.audit %}
+  <section class="card">
+    <div class="muted small">Rx {{ r.prescriptionid }} · sent {{ sel.prescribed.at|when }} by {{ r.doctor_name }}</div>
+    <h2 style="font-size:22px; margin:4px 0">{{ r.genericname }}</h2>
+    <div class="muted">{{ r|dose }}{% if r.route %}, {{ r.route|lower }}{% endif %} · {{ r.prescriptionstart|d('%d %b') }} – {{ r.prescriptionend|d if r.prescriptionend else 'ongoing' }} · for {{ r.disease|lower }}</div>
+    <div class="reasonbox row" style="margin:14px 0">
+      <span><b>{{ r.patient_name }}</b>, {{ r.dob|age }} {{ r.sex }}</span>
+      {% if sel.allergies %}<span style="color:var(--red-text)">Allergic: {{ sel.allergies|map(attribute='ingredientname')|join(', ') }}</span>{% else %}<span class="muted">No allergies recorded</span>{% endif %}
+      <a style="margin-left:auto" href="{{ url_for('patients.record', nric=r.nric) }}">Full record</a>
+    </div>
+
+    <h3 style="margin-bottom:8px">Alerts the doctor saw <span class="src" style="font-weight:400">MongoDB · prescription_audit</span></h3>
+    <div class="stack" style="gap:8px">
+      {% for x in a.alerts or [] %}
+        <div class="alert-item">{{ alert_line(x) }}{% if x.type == 'interaction' and x.message %}<span class="sent">"{{ x.message }}"</span>{% endif %}</div>
+      {% else %}<div class="alertbox none">No alerts were found when this was prescribed.</div>{% endfor %}
+    </div>
+
+    {% if sel.prescribed.reason %}
+    <div class="reasonbox" style="margin-top:14px"><div class="muted small">Doctor's reason to proceed</div>{{ sel.prescribed.reason }}</div>
+    {% endif %}
+    {% if not a %}<div class="flash error" style="margin-top:12px">No audit record found in MongoDB for this prescription.</div>{% endif %}
+
+    <form id="review-form" method="post" action="{{ url_for('pharmacist.decide', rx_id=r.prescriptionid) }}" style="margin-top:16px">
+      {{ csrf() }}
+      <fieldset style="border:1px solid var(--line); border-radius:10px; padding:10px 18px 14px">
+        <legend style="font-weight:600; padding:0 6px">Your check</legend>
+        {% for k, label in checks %}
+          <label class="row" style="margin:8px 0"><input type="checkbox" name="check_{{ k }}" value="1"> {{ label }}</label>
+        {% endfor %}
+      </fieldset>
+      <div class="field" style="margin-top:14px">
+        <label class="f" for="note">Note to doctor <span class="muted" style="font-weight:400">(required to return)</span></label>
+        <textarea id="note" name="note" maxlength="255"></textarea>
+      </div>
+      <div class="row">
+        <button class="btn" name="action" value="return">Return to doctor</button>
+        <button class="btn go" name="action" value="approve">Approve and dispense</button>
+      </div>
+    </form>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

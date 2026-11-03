@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf with context %}
+{% block title %}{{ 'New patient' if mode == 'new' else 'Edit patient' }}{% endblock %}
+{% block content %}
+<section class="narrow">
+  <h1 style="margin-bottom:14px">{{ 'New patient' if mode == 'new' else 'Edit ' ~ (p.get('name') or 'patient') }}</h1>
+  <form method="post" class="card">
+    {{ csrf() }}
+    <div class="field"><label class="f" for="nric">NRIC</label>
+      <input type="text" id="nric" name="nric" value="{{ p.get('nric', '') }}" {{ 'readonly' if mode == 'edit' }} required pattern="[STFGMstfgm][0-9]{7}[A-Za-z]" placeholder="S1234567A">
+      <div class="hint">Synthetic NRICs only. This is the patient's ID in both databases and can't be changed later.</div></div>
+    <div class="field"><label class="f" for="name">Full name</label><input type="text" id="name" name="name" value="{{ p.get('name', '') }}" required maxlength="100"></div>
+    <div class="fields">
+      <div><label class="f" for="dob">Date of birth</label><input type="date" id="dob" name="dob" value="{{ p.get('dob', '') }}" required max="{{ today().isoformat() }}"></div>
+      <div><label class="f" for="sex">Sex</label><select id="sex" name="sex"><option value="">Not recorded</option><option value="F" {{ 'selected' if p.get('sex') == 'F' }}>Female</option><option value="M" {{ 'selected' if p.get('sex') == 'M' }}>Male</option></select></div>
+      <div><label class="f" for="phone">Phone</label><input type="text" id="phone" name="phone" value="{{ p.get('phone', '') }}" maxlength="20"></div>
+    </div>
+    <div class="row" style="margin-top:18px">
+      <button class="btn primary">{{ 'Add patient' if mode == 'new' else 'Save changes' }}</button>
+      <a class="btn" href="{{ url_for('patients.record', nric=p.get('nric')) if mode == 'edit' else url_for('patients.search') }}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,25 @@
+{# One line describing an alert, in the shape stored in prescription_audit. #}
+{% macro alert_line(a) -%}
+  {%- if a.type == 'interaction' -%}
+    <b>Interaction:</b> {{ a.ingredients|join(' + ') }} — {{ a.effect|effect }}{% if a.withDrug %} <span class="small">(with {{ a.withDrug }})</span>{% endif %}
+    {%- if a.severity == 'avoid' %} <span class="chip ret">Label says avoid</span>{% endif %}
+  {%- elif a.type == 'allergy' -%}
+    <b>Allergy:</b> {{ a.ingredient }} — {{ a.reaction or 'reaction not recorded' }} ({{ a.severity }})
+  {%- elif a.type == 'duplicate' -%}
+    <b>Duplicate:</b> already taking {{ a.ingredient }} ({{ a.withDrug }})
+  {%- elif a.type == 'lab' -%}
+    <b>Lab:</b> {{ a.test|labname }} {{ a.value }} {{ a.unit }}{% if a.collectedAt %} on {{ a.collectedAt|d }}{% endif %} — {{ a.message }}
+  {%- elif a.type == 'history' -%}
+    <b>History:</b> {{ a.condition }}{% if a.when %}, {{ a.when|mon }}{% endif %} — {{ a.message }}
+  {%- else -%}
+    {{ a.message }}
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro status_chip(s) -%}
+  {%- if s == 'Approved' %}<span class="chip ok">Dispensed</span>
+  {%- elif s == 'Rejected' %}<span class="chip ret">Returned</span>
+  {%- else %}<span class="chip pend">Waiting for pharmacist</span>{% endif -%}
+{%- endmacro %}
+
+{% macro csrf() %}<input type="hidden" name="_csrf" value="{{ csrf_token }}">{% endmacro %}
