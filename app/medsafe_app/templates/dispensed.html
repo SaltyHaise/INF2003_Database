@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_chip %}
+{% block title %}Dispensed{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="card-head">
+    <h2>Reviewed prescriptions</h2><span class="muted small">latest 60</span>
+    <div class="right filters">
+      <a class="btn sm {{ 'primary' if not status }}" href="{{ url_for('pharmacist.dispensed') }}">All</a>
+      <a class="btn sm {{ 'primary' if status == 'Approved' }}" href="{{ url_for('pharmacist.dispensed', status='Approved') }}">Dispensed</a>
+      <a class="btn sm {{ 'primary' if status == 'Rejected' }}" href="{{ url_for('pharmacist.dispensed', status='Rejected') }}">Returned</a>
+    </div>
+  </div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Reviewed</th><th>Patient</th><th>Drug</th><th>Prescriber</th><th>Pharmacist</th><th>Status</th><th>Note</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr><td class="nowrap small">{{ r.reviewedat|d }} {{ r.reviewedat|hm }}</td>
+          <td><a href="{{ url_for('patients.record', nric=r.nric) }}">{{ r.patient_name }}</a><div class="sub mono">{{ r.nric }}</div></td>
+          <td><b>{{ r.genericname }}</b><div class="sub">{{ r|dose }} · for {{ r.disease|lower }}</div></td>
+          <td class="small">{{ r.doctor_name }}</td><td class="small">{{ r.pharmacist_name or '' }}</td>
+          <td>{{ status_chip(r.reviewstatus) }}</td><td class="small">{{ r.reviewnotes or '' }}</td></tr>
+    {% else %}<tr><td colspan="7" class="empty">Nothing reviewed yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

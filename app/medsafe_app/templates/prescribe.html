@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% from "_macros.html" import alert_line, status_chip, csrf with context %}
+{% block title %}Prescribe{% endblock %}
+{% block content %}
+
+{# ---------------- 1. patient + condition ---------------- #}
+<section class="narrow">
+  <h1>New prescription</h1>
+  <p class="muted" style="margin:6px 0 14px">Enter the patient and the condition you are treating.</p>
+  <form class="card" method="get" action="{{ url_for('doctor.prescribe') }}">
+    {% for e in errors if not patient or not disease %}<div class="flash error" style="margin-bottom:12px">{{ e }}</div>{% endfor %}
+    <div class="field ac" data-src="{{ url_for('api.patients') }}">
+      <label class="f" for="patient-q">Patient</label>
+      <input type="text" id="patient-q" placeholder="Search by name or NRIC" required
+             value="{% if patient %}{{ patient.name }} · {{ patient.nric }} · {{ patient.sex }}, {{ patient.dob|age }}{% endif %}">
+      <input type="hidden" name="nric" value="{{ nric }}">
+      <div class="hint">Search by name or NRIC</div>
+    </div>
+    <div class="field ac" data-src="{{ url_for('api.diseases') }}">
+      <label class="f" for="disease-q">Condition</label>
+      <input type="text" id="disease-q" placeholder="e.g. osteoarthritis, hypertension" required value="{{ disease.name if disease }}">
+      <input type="hidden" name="disease_id" value="{{ disease_id or '' }}">
+    </div>
+    <div class="row">
+      <button class="btn primary">Check medications</button>
+      <a class="btn" href="{{ url_for('doctor.prescribe') }}">Start over</a>
+    </div>
+  </form>
+</section>
+
+{% if not (patient and disease) %}
+  {% if recent %}
+  <section class="card">
+    <div class="card-head"><h2>Your recent prescriptions</h2><span class="src">PostgreSQL · v_prescription_detail</span></div>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Rx</th><th>Patient</th><th>Drug</th><th>For</th><th>Start</th><th>Status</th><th>Pharmacist's note</th></tr></thead>
+      <tbody>
+      {% for r in recent %}
+        <tr class="click" data-href="{{ url_for('patients.record', nric=r.nric) }}">
+          <td class="num">{{ r.prescriptionid }}</td>
+          <td>{{ r.patient_name }}<div class="sub mono">{{ r.nric }}</div></td>
+          <td><b>{{ r.genericname }}</b><div class="sub">{{ r|dose }}</div></td>
+          <td class="small">{{ r.disease }}</td>
+          <td class="nowrap">{{ r.prescriptionstart|d }}</td>
+          <td>{{ status_chip(r.reviewstatus) }}</td>
+          <td class="small">{{ r.reviewnotes or '' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+  {% endif %}
+{% else %}
+
+{# ---------------- 2. patient history (read-only) ---------------- #}
+<section class="card">
+  <div class="card-head">
+    <h2>Patient history</h2>
+    <span class="muted small">Read-only{% if last_hist and last_hist.recordedBy %} · history last updated by {{ last_hist.recordedBy.name }}, {{ last_hist.recordedAt|d }}{% endif %}</span>
+    <span class="right"><a class="small" href="{{ url_for('patients.record', nric=patient.nric) }}">Full record</a></span>
+  </div>
+  <div class="hist3">
+    <div class="box allergy">
+      <div class="box-head"><h3>Allergies</h3><a class="btn sm" href="{{ url_for('patients.record', nric=patient.nric) }}#allergies">Edit</a></div>
+      <ul>
+        {% for a in allergies %}<li><span>{{ a.ingredientname }} — {{ (a.reactions or 'reaction not recorded')|lower }}, {{ (a.severity or '')|lower }}</span></li>
+        {% else %}<li>No allergies recorded</li>{% endfor %}
+      </ul>
+    </div>
+    <div class="box">
+      <div class="box-head"><h3>Current medications</h3><a class="btn sm" href="{{ url_for('patients.record', nric=patient.nric) }}#meds">Edit</a></div>
+      <ul>
+        {% for m in active %}
+        <li><b>{{ m.genericname }} <span style="font-weight:400">{{ m|dose }}</span></b>
+            <span class="muted small nowrap">{{ m.prescriptionstart|d }} – {{ m.prescriptionend|d if m.prescriptionend else 'ongoing' }} · {{ m.doctor_name }}</span></li>
+        {% else %}<li class="muted">No active medications</li>{% endfor %}
+      </ul>
+      {% if past_count %}<a class="small" href="{{ url_for('patients.record', nric=patient.nric) }}#meds">Past and pending prescriptions ({{ past_count }})</a>{% endif %}
+    </div>
+    <div class="box">
+      <div class="box-head"><h3>Conditions & history</h3><a class="btn sm" href="{{ url_for('patients.record', nric=patient.nric) }}#history">Edit</a></div>
+      <ul>
+        {% if dx_names %}<li>{{ dx_names|join(' · ') }}</li>{% endif %}
+        {% for h in history_lines %}
+          <li><span><b>{{ h.text }}</b>{% if h.when %}, {{ h.when|mon }}{% endif %}{% if h.extra %} · quit {{ h.extra|mon }}{% endif %}
+            {% if h.flag %} <span class="chip risk">{{ h.flag }}</span>{% endif %}</span></li>
+        {% endfor %}
+        {% if not dx_names and not history_lines %}<li class="muted">Nothing recorded</li>{% endif %}
+      </ul>
+    </div>
+  </div>
+</section>
+
+{# ---------------- 3. drugs for the condition, each checked ---------------- #}
+<section class="card" id="drugs">
+  <div class="card-head">
+    <h2>Medications for {{ disease.name|lower }}</h2>
+    <span class="right"><span class="src">ToAddress ⋈ Drug</span></span>
+  </div>
+  <p class="muted small" style="margin:-6px 0 14px">Drugs linked to this condition in the reference data, each checked against this patient. Not recommendations: the choice is yours.</p>
+  <div class="tbl-wrap"><table class="tbl boxed">
+    <thead><tr><th>Select</th><th>Drug</th><th>Interacts with current meds</th><th>Allergy</th><th>History &amp; labs</th><th>Common side effects</th><th>Result</th></tr></thead>
+    <tbody>
+    {% for c in candidates %}
+      {% set ck = c.check %}
+      {% set href = url_for('doctor.prescribe', nric=patient.nric, disease_id=disease.diseaseid, drug_id=c.drugid) ~ '#rx' %}
+      <tr class="click {{ 'sel' if c.drugid == drug_id }}" data-href="{{ href }}">
+        <td><input type="radio" name="pick" aria-label="Select {{ c.genericname }}" {{ 'checked' if c.drugid == drug_id }} onclick="location='{{ href }}'"></td>
+        <td><b>{{ c.genericname }}</b>
+          <div class="sub">{% if c.templates %}{{ c.templates[0]|formroute or 'Template' }}{% if c.templates|length > 1 %} · {{ c.templates|length }} templates{% endif %}{% else %}No dose template yet{% endif %}
+          {% if c.searched %} · <span class="chip today">added by search</span>{% endif %}</div></td>
+        <td class="small warn-text">
+          {% set groups = {} %}
+          {% for i in ck.interactions %}{% set _ = groups.setdefault(i.withDrug, []).append(i.effect|effect) %}{% endfor %}
+          {% for d, effs in groups.items() %}<div>{{ d }} — {{ effs|unique|join(', ') }}</div>{% endfor %}
+          {% for x in ck.duplicates %}<div>Already taking {{ x.ingredient }}</div>{% endfor %}
+          {% if not groups and not ck.duplicates %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td class="small warn-text">{% for a in ck.allergies %}<div>{{ a.ingredient }} ({{ a.severity }})</div>{% else %}<span class="muted">—</span>{% endfor %}</td>
+        <td class="small warn-text">
+          {% for h in ck.history %}<div>{{ h.condition }}{% if h.when %} {{ h.when|mon }}{% endif %}</div>{% endfor %}
+          {% for l in ck.labs %}<div>{{ l.test|labname }} {{ l.value }} {{ l.unit }}</div>{% endfor %}
+          {% if not ck.history and not ck.labs %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td class="small">{{ ck.side_effects|join(', ') or '—' }}</td>
+        <td>{% if ck.alerts %}<span class="pill-warn">{{ ck.alerts|length }} alert{{ 's' if ck.alerts|length != 1 }}</span>{% else %}<span class="pill-ok">No alerts found</span>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="empty">No drugs are linked to this condition in the reference data. Search for a drug below.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <div class="row" style="margin-top:14px">
+    <span class="small">Drug not listed?</span>
+    <div class="ac" style="flex:1; min-width:260px; max-width:460px"
+         data-src="{{ url_for('api.drugs') }}"
+         data-go="{{ url_for('doctor.prescribe', nric=patient.nric, disease_id=disease.diseaseid) }}&drug_id={id}#rx">
+      <input type="search" placeholder="Search any drug to check it against this patient" aria-label="Search any drug">
+    </div>
+    <span class="faint small">"No alerts found" means nothing is recorded in our data, not that a drug is safe.</span>
+  </div>
+</section>
+
+{# ---------------- 4. the prescription ---------------- #}
+{% if selected %}
+{% set ck = selected.check %}
+<section class="card" id="rx">
+  <form id="rx-form" method="post" action="{{ url_for('doctor.prescribe_submit') }}">
+    {{ csrf() }}
+    <input type="hidden" name="nric" value="{{ patient.nric }}">
+    <input type="hidden" name="disease_id" value="{{ disease.diseaseid }}">
+    <input type="hidden" name="drug_id" value="{{ selected.drugid }}">
+    {% for e in errors %}<div class="flash error" style="margin-bottom:12px">{{ e }}</div>{% endfor %}
+    <div class="split">
+      <div>
+        <h2 style="margin-bottom:12px">Prescription — {{ selected.genericname }}</h2>
+        <label class="f">Template</label>
+        <div class="stack" style="gap:8px">
+          {% set chosen = form.get('template') or (selected.templates[0].prescriptiontemplateid|string if selected.templates else 'custom') %}
+          {% for t in selected.templates %}
+          <label class="tpl"><input type="radio" name="template" value="{{ t.prescriptiontemplateid }}" {{ 'checked' if chosen == t.prescriptiontemplateid|string }}>
+            <span>{{ t|dose }}{% if t.route %}, {{ t.route|lower }}{% endif %}{% if t.dosage_form %} · {{ t.dosage_form|lower }}{% endif %}</span>
+            <span class="right">Template #{{ t.prescriptiontemplateid }}</span></label>
+          {% endfor %}
+          <label class="tpl"><input type="radio" name="template" value="custom" {{ 'checked' if chosen == 'custom' }}>
+            <span>Custom — write my own</span><span class="right">Saved as a new template</span></label>
+        </div>
+        <div id="custom-fields" class="fields" style="margin-top:12px">
+          <div><label class="f" for="dose_amount">Dose</label><input type="number" step="any" min="0" id="dose_amount" name="dose_amount" value="{{ form.get('dose_amount', '') }}" placeholder="400"></div>
+          <div><label class="f" for="dose_unit">Unit</label><input type="text" id="dose_unit" name="dose_unit" value="{{ form.get('dose_unit', 'mg') }}"></div>
+          <div style="grid-column: span 2"><label class="f" for="frequency">Frequency</label><input type="text" id="frequency" name="frequency" value="{{ form.get('frequency', '') }}" placeholder="3 times daily after food"></div>
+          <div><label class="f" for="route">Route</label>
+            <select id="route" name="route">{% for r in ['ORAL', 'TOPICAL', 'INHALATION', 'INTRAVENOUS', 'INTRAMUSCULAR', 'SUBCUTANEOUS', 'OPHTHALMIC', 'NASAL', 'RECTAL', 'TRANSDERMAL'] %}<option {{ 'selected' if form.get('route') == r }}>{{ r }}</option>{% endfor %}</select></div>
+          <div><label class="f" for="dosage_form">Form</label><input type="text" id="dosage_form" name="dosage_form" value="{{ form.get('dosage_form', 'TABLET') }}"></div>
+        </div>
+        <div class="fields" style="margin-top:14px">
+          <div><label class="f" for="start">Start</label><input type="date" id="start" name="start" min="{{ today().isoformat() }}" value="{{ form.get('start') or today().isoformat() }}" required></div>
+          <div><label class="f" for="days">Days</label><input type="number" id="days" name="days" min="1" max="365" value="{{ form.get('days', '14') }}"><div class="hint">Blank = ongoing</div></div>
+          <div><label class="f">End</label><div class="reasonbox" id="end-preview">—</div></div>
+        </div>
+        <p class="hint" style="margin-top:10px">
+          {% if existing_dx %}Recorded under the existing diagnosis of {{ disease.name|lower }} ({{ existing_dx.dateofdiagnosis|d }}, {{ existing_dx.doctor_name }}).
+          {% else %}This creates a new diagnosis of {{ disease.name|lower }} today.{% endif %}
+        </p>
+      </div>
+      <div class="stack">
+        {% if ck.alerts %}
+        <div class="alertbox">
+          <b>{{ ck.alerts|length }} alert{{ 's' if ck.alerts|length != 1 }} for this drug</b>
+          <details style="margin-top:6px">
+            <summary class="small" style="cursor:pointer; text-decoration:underline">View alerts and label sentences</summary>
+            <div class="stack" style="gap:8px; margin-top:10px">
+              {% for a in ck.alerts %}
+                <div class="small">{{ alert_line(a) }}{% if a.type == 'interaction' and a.message %}<div class="faint" style="margin-top:2px">"{{ a.message }}"</div>{% endif %}</div>
+              {% endfor %}
+            </div>
+          </details>
+        </div>
+        {% else %}
+        <div class="alertbox none"><b>No alerts found.</b> Nothing about this drug is recorded against this patient's medications, allergies, history or recent labs.</div>
+        {% endif %}
+        <div>
+          <label class="f" for="reason">Reason to proceed {% if ck.alerts %}<span class="warn-text" style="font-weight:400">(required)</span>{% else %}<span class="muted" style="font-weight:400">(optional)</span>{% endif %}</label>
+          <textarea id="reason" name="reason" maxlength="1000" {{ 'required' if ck.alerts }} placeholder="e.g. short course, gastro-protection added, INR review booked">{{ form.get('reason', '') }}</textarea>
+        </div>
+        <div class="row">
+          <a class="btn" href="{{ url_for('doctor.prescribe', nric=patient.nric, disease_id=disease.diseaseid) }}#drugs">Cancel</a>
+          <button class="btn primary">Confirm and send to pharmacy</button>
+        </div>
+        <p class="hint">Template values are copied into the prescription, so later template edits don't change it.</p>
+      </div>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

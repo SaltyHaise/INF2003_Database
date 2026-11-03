@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Patient records{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="card-head">
+    <h1>Patient records</h1>
+    <span class="right">{% if user.role == 'doctor' %}<a class="btn primary" href="{{ url_for('patients.new') }}">New patient</a>{% endif %}</span>
+  </div>
+  <form method="get" class="row" style="margin-bottom:14px">
+    <input type="search" name="q" value="{{ q }}" placeholder="Name or NRIC" aria-label="Search patients" style="flex:1; max-width:420px">
+    <button class="btn">Search</button>
+  </form>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Patient</th><th>NRIC</th><th>Sex, age</th><th>Active meds</th><th>Allergies</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="click" data-href="{{ url_for('patients.record', nric=r.nric) }}">
+        <td><a href="{{ url_for('patients.record', nric=r.nric) }}"><b>{{ r.name }}</b></a></td><td class="mono">{{ r.nric }}</td>
+        <td>{{ r.sex }}, {{ r.dob|age }}</td><td class="num">{{ r.active_meds }}</td>
+        <td>{% if r.allergies %}<span class="chip ret">{{ r.allergies }}</span>{% else %}<span class="muted">—</span>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="5" class="empty">No patients match "{{ q }}".</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

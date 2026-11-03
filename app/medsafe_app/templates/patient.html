@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_chip, csrf with context %}
+{% block title %}{{ p.name }}{% endblock %}
+{% block content %}
+{% set doctor = user.role == 'doctor' %}
+
+{# ---------------- header ---------------- #}
+<section class="card row" style="gap:18px">
+  <div class="avatar">{{ p.name|initials }}</div>
+  <div>
+    <h1>{{ p.name }}</h1>
+    <div class="muted">{{ {'F': 'Female', 'M': 'Male'}.get(p.sex, 'Sex not recorded') }} · {{ p.dob|age }} yrs · DOB {{ p.dob|d }} · <span class="mono">{{ p.nric }}</span>{% if p.phonenumber %} · {{ p.phonenumber }}{% endif %} · Synthetic record</div>
+  </div>
+  {% if doctor %}
+  <div class="row" style="margin-left:auto">
+    <a class="btn" href="{{ url_for('patients.edit', nric=p.nric) }}">Edit details</a>
+    <a class="btn" href="#diagnoses" onclick="document.getElementById('add-dx').open = true">Add diagnosis</a>
+    <a class="btn primary" href="{{ url_for('doctor.prescribe', nric=p.nric) }}">New prescription</a>
+  </div>
+  {% endif %}
+</section>
+
+{# ---------------- allergies (PostgreSQL) ---------------- #}
+<section id="allergies">
+  <div class="allergy-band">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>
+    <b>Allergies</b>
+    {% for a in allergies %}<span class="tagpill">{{ a.ingredientname }} — {{ (a.reactions or 'reaction not recorded')|lower }}, {{ (a.severity or '')|lower }}</span>
+    {% else %}<span>None recorded</span>{% endfor %}
+    {% if doctor %}<a href="#allergies" style="margin-left:auto; color:inherit" onclick="document.getElementById('edit-allergies').open = !document.getElementById('edit-allergies').open; return false;">Edit allergies</a>{% endif %}
+  </div>
+  {% if doctor %}
+  <details class="panel card" id="edit-allergies" style="margin-top:10px">
+    <summary>Edit allergies <span class="src">PostgreSQL · IsAllergicTo</span></summary>
+    {% if allergies %}
+    <table class="tbl" style="margin-bottom:14px">
+      <thead><tr><th>Ingredient</th><th>Severity</th><th>Reaction</th><th>Recorded</th><th></th></tr></thead>
+      {% for a in allergies %}
+      <tr><td><b>{{ a.ingredientname }}</b></td><td>{{ a.severity }}</td><td>{{ a.reactions or '' }}</td><td>{{ a.date|d }}</td>
+          <td><form method="post" action="{{ url_for('patients.delete_allergy', nric=p.nric, ingredient_id=a.ingredientid) }}">{{ csrf() }}<button class="btn sm">Remove</button></form></td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    <form method="post" action="{{ url_for('patients.add_allergy', nric=p.nric) }}" class="fields">
+      {{ csrf() }}
+      <div class="ac" data-src="{{ url_for('api.ingredients') }}" style="grid-column: span 2">
+        <label class="f" for="allergy-ing">Ingredient</label>
+        <input type="text" id="allergy-ing" placeholder="e.g. penicillin, amoxicillin" required>
+        <input type="hidden" name="ingredient_id">
+      </div>
+      <div><label class="f" for="allergy-sev">Severity</label><select id="allergy-sev" name="severity">{% for s in ['Mild', 'Moderate', 'Severe'] %}<option>{{ s }}</option>{% endfor %}</select></div>
+      <div style="grid-column: span 2"><label class="f" for="allergy-reaction">Reaction</label><input type="text" id="allergy-reaction" name="reaction" placeholder="e.g. hives, rash"></div>
+      <div><label class="f" for="allergy-date">Date</label><input type="date" id="allergy-date" name="date" value="{{ today().isoformat() }}"></div>
+      <div style="align-self:end"><button class="btn primary">Save allergy</button></div>
+    </form>
+  </details>
+  {% endif %}
+</section>
+
+{# ---------------- medications + diagnoses (PostgreSQL) ---------------- #}
+<section class="grid-3-2">
+  <div class="card" id="meds">
+    <div class="card-head"><h2>Active medications</h2><span class="muted small">as of {{ today()|d }}</span><span class="right"><span class="src">PostgreSQL · v_active_medications</span></span></div>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Drug</th><th>Dose</th><th>Start</th><th>End</th></tr></thead>
+      <tbody>
+      {% for m in active %}
+        <tr><td><b>{{ m.genericname }}</b><div class="sub">{{ m|formroute }}{% if m|formroute %} · {% endif %}for {{ m.disease|lower }}</div></td>
+            <td>{{ m|dose }}</td><td class="nowrap">{{ m.prescriptionstart|d }}</td><td class="nowrap">{{ m.prescriptionend|d if m.prescriptionend else 'Ongoing' }}</td></tr>
+      {% else %}<tr><td colspan="4" class="empty">No active medications.</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+    {% if others %}
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer; color:var(--blue); text-decoration:underline">Show past, pending and returned prescriptions ({{ others|length }})</summary>
+      <div class="tbl-wrap"><table class="tbl" style="margin-top:8px">
+        <thead><tr><th>Drug</th><th>Dose</th><th>Dates</th><th>Status</th></tr></thead>
+        {% for m in others %}
+        <tr><td><b>{{ m.genericname }}</b><div class="sub">for {{ m.disease|lower }} · {{ m.doctor_name }}</div></td><td>{{ m|dose }}</td>
+            <td class="small nowrap">{{ m.prescriptionstart|d }} – {{ m.prescriptionend|d if m.prescriptionend else 'ongoing' }}</td>
+            <td>{{ status_chip(m.reviewstatus) }}{% if m.reviewstatus == 'Approved' and m.prescriptionend and m.prescriptionend < today() %} <span class="sub">ended</span>{% elif m.reviewstatus == 'Approved' %} <span class="sub">starts later</span>{% endif %}
+              {% if m.reviewnotes and m.reviewstatus == 'Rejected' %}<div class="sub">{{ m.reviewnotes }}</div>{% endif %}</td></tr>
+        {% endfor %}
+      </table></div>
+    </details>
+    {% endif %}
+  </div>
+
+  <div class="card" id="diagnoses">
+    <div class="card-head"><h2>Diagnoses</h2><span class="right"><span class="src">PostgreSQL · Diagnosis</span></span></div>
+    <ul class="dxlist">
+      {% for g in dxs %}
+      <li><span>{{ g.disease }}{% if g.dateofdiagnosis == today() %} <span class="chip today">Today</span>{% endif %}</span>
+          <span class="muted small nowrap">{{ g.dateofdiagnosis|mon }} · {{ 'You' if doctor and g.doctorid == user.id else g.doctor_name }}
+          {% if doctor and not g.prescriptions %}<form method="post" action="{{ url_for('patients.delete_diagnosis', nric=p.nric, dx_id=g.diagnosisid) }}" style="display:inline">{{ csrf() }}<button class="linkbtn" title="Remove (no prescriptions)">remove</button></form>{% endif %}</span></li>
+      {% else %}<li class="muted">No diagnoses.</li>{% endfor %}
+    </ul>
+    {% if doctor %}
+    <details class="panel" id="add-dx">
+      <summary>Add diagnosis</summary>
+      <form method="post" action="{{ url_for('patients.add_diagnosis', nric=p.nric) }}" class="fields">
+        {{ csrf() }}
+        <div class="ac" data-src="{{ url_for('api.diseases') }}" style="grid-column: span 2">
+          <label class="f" for="dx-q">Condition</label><input type="text" id="dx-q" required><input type="hidden" name="disease_id">
+        </div>
+        <div><label class="f" for="dx-date">Date</label><input type="date" id="dx-date" name="date" value="{{ today().isoformat() }}"></div>
+        <div style="align-self:end"><button class="btn primary">Add</button></div>
+      </form>
+    </details>
+    {% endif %}
+  </div>
+</section>
+
+{% if not mongo_ok %}<div class="flash error">MongoDB isn't reachable, so history, visits and lab results can't be shown. Start the MongoDB service and reload.</div>{% endif %}
+
+{# ---------------- medical history (MongoDB patient_history) ---------------- #}
+<section class="card" id="history">
+  <div class="card-head">
+    <h2>Medical history</h2>
+    <div class="filters" data-for="#hist-list">
+      <button class="on" data-k="all">All</button><button data-k="Procedure">Procedures</button>
+      <button data-k="Lifestyle">Lifestyle</button><button data-k="Condition">Conditions</button><button data-k="Family">Family</button>
+    </div>
+    <span class="right"><span class="src">MongoDB · patient_history</span></span>
+  </div>
+  <div id="hist-list">
+    {% for e in hist %}
+    <div class="hist-row {{ e.status }}" data-k="{{ e.kind }}">
+      <div class="muted">{% if e.effectivePeriod.end is none and e.eventType == 'social_history' %}Since {{ e.effectivePeriod.start|mon }}{% else %}{{ e.effectivePeriod.start|mon }}{% endif %}</div>
+      <div><span class="chip k-{{ e.kind|lower }}">{{ e.kind }}</span></div>
+      <div>
+        <b>{{ e.title }}</b>{% if e.status not in ('active', 'completed') %} — {{ e.status }}{% if e.effectivePeriod.end %} {{ e.effectivePeriod.end|mon }}{% endif %}{% endif %}
+        {% if e.details.notes %}<span class="muted"> · {{ e.details.notes }}</span>{% endif %}
+        {% if e.facts %}<div class="facts">{% for k, v in e.facts %}{{ k }}: {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</div>{% endif %}
+        <div class="faint small">{{ e.verificationStatus|replace('_', ' ') }}{% if e.recordedBy %} · recorded by {{ e.recordedBy.name }}{% endif %} · {{ e.recordedAt|d }}</div>
+      </div>
+      <div>{% if doctor %}<form method="post" action="{{ url_for('patients.history_error', nric=p.nric, hid=e._id) }}">{{ csrf() }}<button class="linkbtn" title="Mark as entered in error">entered in error</button></form>{% endif %}</div>
+    </div>
+    {% else %}<p class="empty">No history recorded.</p>{% endfor %}
+  </div>
+  {% if doctor %}
+  <details class="panel">
+    <summary>Add history event</summary>
+    <form method="post" action="{{ url_for('patients.add_history', nric=p.nric) }}" class="fields">
+      {{ csrf() }}
+      <div><label class="f" for="hist-kind">Kind</label>
+        <select id="hist-kind" name="kind">
+          <option value="condition">Past condition</option><option value="procedure">Procedure / surgery</option>
+          <option value="smoking">Smoking status</option><option value="alcohol">Alcohol use</option>
+          <option value="family_history">Family history</option>
+        </select></div>
+      <div data-kind="condition procedure family_history" style="grid-column: span 2"><label class="f" for="hist-label">What</label><input type="text" id="hist-label" name="label" placeholder="e.g. Upper GI bleed, Cataract surgery left eye"></div>
+      <div data-kind="family_history"><label class="f" for="hist-rel">Relative</label><select id="hist-rel" name="relation">{% for r in ['father', 'mother', 'sibling', 'child', 'grandparent'] %}<option>{{ r }}</option>{% endfor %}</select></div>
+      <div data-kind="family_history"><label class="f" for="hist-onset">Age at onset</label><input type="number" id="hist-onset" name="age_at_onset" min="0" max="120"></div>
+      <div data-kind="smoking"><label class="f" for="hist-smoke">Status</label><select id="hist-smoke" name="smoking_status"><option value="never_smoker">Never smoked</option><option value="current_smoker">Current smoker</option><option value="former_smoker">Former smoker</option></select></div>
+      <div data-kind="smoking"><label class="f" for="hist-perday">Cigarettes / day</label><input type="number" id="hist-perday" name="per_day" min="0" max="100"></div>
+      <div data-kind="alcohol"><label class="f" for="hist-alc">Use</label><input type="text" id="hist-alc" name="alcohol_use" placeholder="none, occasional, weekly"></div>
+      <div data-kind="alcohol"><label class="f" for="hist-units">Units / week</label><input type="number" id="hist-units" name="units" min="0" step="any"></div>
+      <div><label class="f" for="hist-start">From</label><input type="date" id="hist-start" name="start" value="{{ today().isoformat() }}"></div>
+      <div data-kind="condition"><label class="f" for="hist-end">Resolved on</label><input type="date" id="hist-end" name="end"></div>
+      <div><label class="f" for="hist-ver">Source</label><select id="hist-ver" name="verification"><option value="patient_reported">Patient reported</option><option value="clinician_confirmed">Clinician confirmed</option><option value="external_record">Other clinic's record</option></select></div>
+      <div style="grid-column: 1 / -1"><label class="f" for="hist-notes">Notes</label><input type="text" id="hist-notes" name="notes" maxlength="500"></div>
+      <div><button class="btn primary">Add event</button></div>
+    </form>
+    <p class="hint">A new smoking or alcohol status closes the current one (marked superseded), so the record keeps the full timeline.</p>
+  </details>
+  {% endif %}
+</section>
+
+{# ---------------- visits + labs (MongoDB) ---------------- #}
+<section class="grid-3-2">
+  <div class="card" id="visits">
+    <div class="card-head">
+      <h2>Visits and notes</h2>
+      <span class="right"><span class="src">MongoDB · encounters</span></span>
+    </div>
+    <form method="get" class="row" style="margin-bottom:6px" action="#visits">
+      <input type="search" name="notes" value="{{ notes_q }}" placeholder="Search this patient's notes (text index)" aria-label="Search notes" style="flex:1">
+      <button class="btn sm">Search</button>{% if notes_q %}<a class="btn sm" href="{{ url_for('patients.record', nric=p.nric) }}#visits">Clear</a>{% endif %}
+    </form>
+    {% for v in visits %}
+    <div class="visit">
+      <div class="row" style="justify-content:space-between">
+        <b>{{ v.visitDate|d }} · {{ v.triage.chiefComplaint }}</b>
+        <span class="muted small">{{ v.doctor.name }} · {{ v.visitType }} · <span class="chip {{ 'ret' if v.triage.category in ('P1', 'P2') else 'pend' if v.triage.category == 'P3' else 'today' }}">{{ v.triage.category }}</span></span>
+      </div>
+      {% set vt = v.triage.vitals %}
+      <div class="vitals">BP {{ vt.systolicBP }}/{{ vt.diastolicBP }} · HR {{ vt.heartRate }}{% if vt.respRate %} · RR {{ vt.respRate }}{% endif %} · T {{ vt.temperatureC }}°C · SpO2 {{ vt.spo2 }}%{% if vt.weightKg %} · {{ vt.weightKg }} kg{% endif %} · pain {{ v.triage.painScore }}/10</div>
+      <details><summary class="small" style="cursor:pointer">Consultation note</summary><div class="note">{{ v.consultation.note }}</div></details>
+    </div>
+    {% else %}<p class="empty">{{ 'No notes match.' if notes_q else 'No visits recorded.' }}</p>{% endfor %}
+    {% if doctor %}
+    <details class="panel">
+      <summary>Add visit (triage and note)</summary>
+      <form method="post" action="{{ url_for('patients.add_visit', nric=p.nric) }}">
+        {{ csrf() }}
+        <div class="fields">
+          <div style="grid-column: span 2"><label class="f" for="v-cc">Chief complaint</label><input type="text" id="v-cc" name="complaint" required></div>
+          <div><label class="f" for="v-cat">Triage</label><select id="v-cat" name="category"><option>P4</option><option>P3</option><option>P2</option><option>P1</option></select></div>
+          <div><label class="f" for="v-type">Visit</label><select id="v-type" name="visit_type"><option>follow-up</option><option>new problem</option></select></div>
+          <div><label class="f" for="v-sbp">Systolic BP</label><input type="number" id="v-sbp" name="sbp" min="50" max="260" required></div>
+          <div><label class="f" for="v-dbp">Diastolic BP</label><input type="number" id="v-dbp" name="dbp" min="20" max="160" required></div>
+          <div><label class="f" for="v-hr">Heart rate</label><input type="number" id="v-hr" name="hr" min="20" max="250" required></div>
+          <div><label class="f" for="v-rr">Resp. rate</label><input type="number" id="v-rr" name="rr" min="4" max="60"></div>
+          <div><label class="f" for="v-t">Temp °C</label><input type="number" id="v-t" name="temp" min="30" max="44" step="0.1" required></div>
+          <div><label class="f" for="v-spo2">SpO2 %</label><input type="number" id="v-spo2" name="spo2" min="50" max="100" required></div>
+          <div><label class="f" for="v-wt">Weight kg</label><input type="number" id="v-wt" name="weight" min="1" max="400" step="0.1"></div>
+          <div><label class="f" for="v-pain">Pain 0–10</label><input type="number" id="v-pain" name="pain" min="0" max="10" value="0"></div>
+        </div>
+        <div class="field" style="margin-top:12px"><label class="f">Diagnoses addressed</label>
+          <div class="row">{% for g in dxs %}<label class="small"><input type="checkbox" name="diagnosis_ids" value="{{ g.diagnosisid }}" {{ 'checked' if loop.first }}> {{ g.disease }} ({{ g.dateofdiagnosis|mon }})</label>{% else %}<span class="muted small">Add a diagnosis first.</span>{% endfor %}</div></div>
+        <div class="field"><label class="f" for="v-note">Consultation note</label><textarea id="v-note" name="note" minlength="10" required></textarea></div>
+        <div class="row"><label class="small" for="v-fu">Follow up in (days)</label><input type="number" id="v-fu" name="follow_up" min="1" max="365" style="width:100px"><button class="btn primary">Save visit</button></div>
+      </form>
+    </details>
+    {% endif %}
+  </div>
+
+  <div class="card" id="labs">
+    <div class="card-head"><h2>Lab results</h2><span class="muted small">latest per test</span><span class="right"><span class="src">MongoDB · lab_results</span></span></div>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Test</th><th>Latest</th><th>Range</th><th>Date</th><th>Recent</th></tr></thead>
+      <tbody>
+      {% for l in labs %}
+        {% set rr = l.targetRange or l.refRange %}
+        <tr><td><b>{{ l.testName }}</b></td>
+            <td class="num nowrap"><span class="{{ 'flag-h' if l.flag == 'H' else 'flag-l' if l.flag == 'L' }}">{{ l.value }} {% if l.flag != 'N' %}{{ l.flag }}{% endif %}</span> <span class="sub">{{ l.unit }}</span></td>
+            <td class="small nowrap">{% if rr.low is defined and rr.high is defined %}{{ rr.low }}–{{ rr.high }}{% elif rr.low is defined %}≥ {{ rr.low }}{% elif rr.high is defined %}≤ {{ rr.high }}{% endif %}{% if l.targetRange %} <span class="sub">target</span>{% endif %}</td>
+            <td class="small nowrap">{{ l.collectedAt|d }}</td>
+            <td class="trend">{% for x in l.recent|reverse %}{{ x.v }}{{ ' → ' if not loop.last }}{% endfor %}</td></tr>
+      {% else %}<tr><td colspan="5" class="empty">No lab results.</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</section>
+{% endblock %}
