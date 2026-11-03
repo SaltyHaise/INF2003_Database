@@ -1,19 +1,34 @@
-# MedSafety: database setup guide (INF2003 G61)
+# MedSafe: setup guide (INF2003 G61)
 
-This sets up both databases on your laptop with all the demo data: **PostgreSQL** (15 tables) and **MongoDB** (5 collections). It takes about 30 minutes, mostly installing.
+This gets the whole project running on your laptop: **PostgreSQL** (15 tables), **MongoDB** (5 collections), and the **MedSafe Flask app**. It takes about 30–40 minutes, mostly installing.
 
-> **Use the same versions as the team:** PostgreSQL **18** and MongoDB Community Server **8**.
-> **Run both setup scripts on the same day.** The demo data's dates are relative to the day you run them, so re-run both before a demo.
+> **Use the same versions as the team:** PostgreSQL **18**, MongoDB Community Server **8**, Python **3.11 or newer**.
+> **Run both database setup scripts on the same day.** The demo data's dates are relative to the day you run them, so re-run both before a demo.
 
-You need the `medsafety_setup` folder (unzip `medsafety_setup.zip`):
+## Part 0: Get the code
+
+Clone the repo and switch to the branch you're working on:
 
 ```
-medsafety_setup/
-  postgresql/   medsafety_setup_postgres.sql   check_setup_postgres.sql
-  mongodb/      medsafety_setup_mongo.js       check_setup_mongo.js     medsafety_examples_mongo.js
-  mysql/        (not used: we're using PostgreSQL)
-  README.md     what's in the tables and collections
+git clone https://github.com/SaltyHaise/INF2003_Database.git
+cd INF2003_Database
+git checkout joseph
 ```
+
+The folders you need:
+
+```
+INF2003_Database/
+  medsafety_setup/
+    postgresql/   medsafety_setup_postgres.sql   check_setup_postgres.sql
+    mongodb/      medsafety_setup_mongo.js       check_setup_mongo.js     medsafety_examples_mongo.js
+    mysql/        (not used: we're using PostgreSQL)
+    README.md     what's in the tables and collections
+    SETUP_GUIDE.md   this file
+  app/medsafe_app/   the Flask app (Part 3)
+```
+
+In the steps below, replace `C:/path/to/INF2003_Database` with where you cloned it.
 
 ---
 
@@ -23,7 +38,7 @@ medsafety_setup/
 
 1. Download **PostgreSQL 18** for Windows from **postgresql.org/download** (the EDB installer).
 2. Run the installer and keep the default components: **PostgreSQL Server, pgAdmin 4, Command Line Tools**. You can untick Stack Builder.
-3. **Set a password for the `postgres` user and write it down.** You need it every time you connect, and the app will need it too.
+3. **Set a password for the `postgres` user and write it down.** You need it every time you connect, and the app needs it in Part 3.
 4. Keep the default port **5432**.
 
 ### 1.2 Create the database
@@ -39,7 +54,7 @@ medsafety_setup/
 3. Type this with **your own path**, using **forward slashes** and keeping the **single quotes**:
 
    ```
-   \i 'C:/Users/yourname/Downloads/medsafety_setup/postgresql/medsafety_setup_postgres.sql'
+   \i 'C:/path/to/INF2003_Database/medsafety_setup/postgresql/medsafety_setup_postgres.sql'
    ```
 
 4. Press **Enter**. It takes under a minute and ends with a CHECK table: **all 27 rows should say PASS**.
@@ -72,7 +87,7 @@ medsafety_setup/
 2. Go to the `mongodb` folder. **Keep the double quotes** if your path has spaces:
 
    ```
-   cd "C:\Users\yourname\Downloads\medsafety_setup\mongodb"
+   cd "C:\path\to\INF2003_Database\medsafety_setup\mongodb"
    ```
 
 3. Run:
@@ -82,6 +97,8 @@ medsafety_setup/
    ```
 
 4. It connects to `localhost:27017`, creates the `medsafety` database, and ends with **All 23 checks passed**.
+
+> **Already ran an older copy of this script?** Run it again. The latest version lets the audit trail store "history" alerts (e.g. a past stomach ulcer), which the app produces when prescribing.
 
 ### 2.3 Check it in Compass
 
@@ -105,7 +122,67 @@ medsafety_setup/
 
 ---
 
-## Connection details for the app
+## Part 3: Run the MedSafe app
+
+### 3.1 Install Python
+
+Install **Python 3.11 or newer** from **python.org**. In the installer, **tick "Add python.exe to PATH"**.
+
+If you use VS Code, also install the **Python** extension (by Microsoft) from the Extensions panel (Ctrl+Shift+X).
+
+### 3.2 Create a virtual environment and install the packages
+
+Open a terminal **in the app folder** (in VS Code: **File → Open Folder** → `app/medsafe_app`, then **Terminal → New Terminal**). Then run:
+
+```
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install -r requirements.txt
+```
+
+- The prompt should now start with **`(.venv)`**. From here on use **`python`**, not `py`, so everything runs inside the venv.
+- Don't forget the **`-r`**: `pip install requirements.txt` (without it) fails with *"Could not find a version that satisfies the requirement requirements.txt"*.
+- **VS Code alternative:** Ctrl+Shift+P → **Python: Create Environment** → **Venv** → pick your Python → tick **requirements.txt**. Then Ctrl+Shift+P → **Python: Select Interpreter** → choose the one marked **('.venv': venv)**.
+- Mac: use `python3 -m venv .venv` and `source .venv/bin/activate`.
+
+### 3.3 Add your database password
+
+Copy the example settings file:
+
+```
+copy .env.example .env
+```
+
+(Mac: `cp .env.example .env`.) Open `.env` and replace `YOUR_PASSWORD` in this line with the PostgreSQL password from step 1.1:
+
+```
+PG_DSN=postgresql://postgres:YOUR_PASSWORD@localhost:5432/medsafety
+```
+
+**`.env` is in `.gitignore`. Never commit it.**
+
+### 3.4 Start the app
+
+```
+python run.py
+```
+
+Open **http://127.0.0.1:5000** and pick a doctor or pharmacist to sign in as (demo sign-in, no password).
+
+On every start, the app creates its own views, trigger and search indexes in PostgreSQL (`app/medsafe_app/sql/app_objects_postgres.sql`). Re-running the PostgreSQL setup script removes them; the next app start puts them back.
+
+### 3.5 Quick check
+
+| As | Do this | You should see |
+|---|---|---|
+| Doctor, e.g. Dr Ganesh Iyer | **Prescribe** → patient *Deepa d/o Raju* → condition *Osteoarthritis of knee* → **Check medications** | Ibuprofen and naproxen each show **5 alerts** |
+| Pharmacist, e.g. Chong Wai Kit | **Review queue** | Pending prescriptions, the ones with serious alerts first |
+
+The full demo walkthrough is in `app/medsafe_app/README.md`.
+
+---
+
+## Connection details
 
 | | PostgreSQL | MongoDB |
 |---|---|---|
@@ -116,13 +193,12 @@ medsafety_setup/
 | Password | the one you set in step 1.1 | (none) |
 | Connection string | `postgresql://postgres:YOUR_PASSWORD@localhost:5432/medsafety` | `mongodb://localhost:27017/medsafety` |
 
-**Keep your password in a `.env` file and add `.env` to `.gitignore`.** Never commit it.
-
 ---
 
 ## Before every demo
 
-Re-run **both** setup scripts on the same day (Part 1.3, then Part 2.2). This refreshes "today's" pending prescriptions and recent lab results. It also **wipes anything you added by hand**.
+1. Re-run **both** setup scripts on the same day (Part 1.3, then Part 2.2). This refreshes "today's" pending prescriptions and recent lab results. It also **wipes anything you added by hand** (including prescriptions made in the app).
+2. Restart the app (`python run.py`) so it recreates its views, trigger and indexes.
 
 ---
 
@@ -137,7 +213,12 @@ Re-run **both** setup scripts on the same day (Part 1.3, then Part 2.2). This re
 | `'mongosh' is not recognized` | Install mongosh (2.1), then open a **new** terminal window |
 | `load is not currently implemented for this platform` | That's the Compass shell tab. Run the script from a terminal (2.2) |
 | `MongoNetworkError: connect ECONNREFUSED 127.0.0.1:27017` | The MongoDB service isn't running. Open **Services**, find **MongoDB Server**, click **Start** |
-| `Document failed validation` (MongoDB) | The document breaks a collection's rules; the error names the field. See the schema at the top of `medsafety_setup_mongo.js` |
+| `Document failed validation` (MongoDB) | The document breaks a collection's rules; the error names the field. If it happens when prescribing, re-run the latest `medsafety_setup_mongo.js` (2.2) |
+| `pip install requirements.txt` fails | Add `-r`: `python -m pip install -r requirements.txt` |
+| `ModuleNotFoundError: No module named 'dotenv'` (or `flask`, `psycopg`) | The packages aren't installed in the Python you're running. Activate the venv (prompt shows `(.venv)`), run the pip command again, and start with `python run.py`, not `py` |
+| `.venv\Scripts\activate` says *running scripts is disabled on this system* | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once in PowerShell, then activate again |
+| VS Code doesn't offer to create a venv | Install the **Python** extension, and open the `app/medsafe_app` folder itself (where `requirements.txt` is) |
+| App stops with *Could not connect to PostgreSQL* / *password authentication failed* | Check `PG_DSN` in `.env`: your password, port 5432, database `medsafety` |
 | Lab alerts missing in the demo | Re-run **both** setup scripts on the same day |
 | A check row says **FAIL** | Screenshot the check output and send it to the group chat |
 
@@ -145,3 +226,4 @@ Re-run **both** setup scripts on the same day (Part 1.3, then Part 2.2). This re
 
 - PostgreSQL: use the same EDB installer from postgresql.org. In Terminal: `/Library/PostgreSQL/18/bin/psql -U postgres -d medsafety -f medsafety_setup_postgres.sql`
 - MongoDB: `brew tap mongodb/brew && brew install mongodb-community@8.0 mongosh && brew services start mongodb-community@8.0`, then install Compass from mongodb.com and follow Part 2.2 in Terminal.
+- App: use `python3` and `source .venv/bin/activate` in Part 3.
