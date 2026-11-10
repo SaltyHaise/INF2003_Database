@@ -10,7 +10,7 @@ import secrets
 from dotenv import load_dotenv
 from flask import Flask, abort, request, session
 
-from . import db, outbox, util
+from . import db, exam, outbox, util
 
 
 def create_app():
@@ -26,6 +26,7 @@ def create_app():
 
     db.init_app(app)
     util.init_app(app)
+    exam.init_app(app)
 
     from .auth import bp as auth_bp
     from .api import bp as api_bp

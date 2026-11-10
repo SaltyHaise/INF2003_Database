@@ -101,6 +101,35 @@
     boxes.forEach(b => b.addEventListener("change", sync)); sync();
   }
 
+  // Visit form: show findings only for the parts examined; suggest parts from the
+  // complaint until the doctor ticks one themselves; "normal" and abnormal findings
+  // for the same part exclude each other.
+  const vf = document.getElementById("visit-form");
+  if (vf) {
+    const parts = [...vf.querySelectorAll("[name=exam_systems]")];
+    const show = () => parts.forEach(t => { vf.querySelector(`[data-system="${t.value}"]`).hidden = !t.checked; });
+    let chosenByDoctor = parts.some(t => t.checked);
+    parts.forEach(t => t.addEventListener("change", () => { chosenByDoctor = true; show(); }));
+    const cc = vf.querySelector("[name=complaint]");
+    cc.addEventListener("input", () => {
+      if (chosenByDoctor) return;
+      const q = cc.value.toLowerCase();
+      parts.forEach(t => {
+        t.checked = q.length > 2 && (t.value === "general" || t.dataset.keywords.split("|").some(k => k && q.includes(k)));
+      });
+      show();
+    });
+    vf.querySelectorAll(".exam-sys").forEach(box => box.addEventListener("change", e => {
+      const cb = e.target;
+      if (cb.type !== "checkbox" || !cb.checked) return;
+      const isNormal = cb.value === "normal";
+      box.querySelectorAll("input[type=checkbox]").forEach(o => {
+        if (o !== cb && (o.value === "normal") !== isNormal) o.checked = false;
+      });
+    }));
+    show();
+  }
+
   // History form: show the fields for the chosen kind
   const hk = document.getElementById("hist-kind");
   if (hk) {

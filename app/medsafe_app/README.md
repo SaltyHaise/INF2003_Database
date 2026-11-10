@@ -41,11 +41,11 @@ Open **http://127.0.0.1:5000**, pick a doctor or pharmacist, and you're in.
 | Screen | Who | What it does |
 |---|---|---|
 | Prescribe | Doctor | Choose patient and condition; see drugs for that condition each checked against the patient; choose a dose template or write one; give a reason if there are alerts; send to the pharmacy |
-| Patient records | Doctor (edit), pharmacist (view) | Details, allergies, active and past prescriptions, diagnoses, medical history, visits with triage and notes, lab results |
+| Patient records | Doctor (edit), pharmacist (view) | Details, allergies, active and past prescriptions, diagnoses, medical history, visits (triage, history, examination, plan), lab results |
 | Review queue | Pharmacist | Pending prescriptions, alerts first; three checks; approve and dispense, or return to the doctor with a note |
 | Dispensed | Pharmacist | Recently approved and returned prescriptions |
 | Drug reference | Both | Look up an ingredient or drug: products, recorded interactions, side effects |
-| Insights | Both | Alert statistics, review turnaround, alert rate per doctor, most prescribed drugs, patients on many medicines, interacting medicines taken right now |
+| Insights | Both | Patients taking interacting medicines now, patients on many medicines, most prescribed drugs; what pharmacists did with prescriptions sent despite alerts; review turnaround and prescription status |
 
 ## Which database does what
 
@@ -53,7 +53,7 @@ Open **http://127.0.0.1:5000**, pick a doctor or pharmacist, and you're in.
 |---|---|---|
 | Patients, doctors, pharmacists, diseases, diagnoses, prescriptions, dose templates | PostgreSQL | Fixed structure, foreign keys, the prescription status must be consistent |
 | Drugs, ingredients, interactions, allergies, side effects | PostgreSQL | Joins and the interaction lookup (`LEAST`/`GREATEST` on ingredient pairs) |
-| Visits: triage + consultation notes (`encounters`) | MongoDB | Free text with a text index; vitals vary |
+| Visits: triage, history, examination, plan (`encounters`) | MongoDB | Each visit examines different body systems; findings use a fixed vocabulary (`medsafe/exam.py`); the note has a text index |
 | Medical history events (`patient_history`) | MongoDB | Different shape per event type; changes over time are kept as new events |
 | Lab results (`lab_results`) and lab rules (`lab_rules`) | MongoDB | Time series per patient; rules joined with `$lookup` |
 | Prescription audit trail (`prescription_audit`) | MongoDB | One document per prescription with nested alerts and an events list; aggregation for analytics |

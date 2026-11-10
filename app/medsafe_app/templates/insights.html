@@ -2,62 +2,67 @@
 {% block title %}Insights{% endblock %}
 {% block content %}
 <h1>Insights</h1>
-<p class="muted" style="margin-top:-8px">Analytics across both databases. MongoDB panels use aggregation pipelines over <code>prescription_audit</code>; PostgreSQL panels use aggregate and window functions.</p>
+<p class="muted" style="margin-top:-8px">Patients to look at first, then how the safety alerts are being used, then the system itself. PostgreSQL panels use joins, aggregates and window functions; MongoDB panels use aggregation pipelines over <code>prescription_audit</code>.</p>
 
-<section class="grid2">
-  <div class="card">
-    <div class="card-head"><h2>Alerts by type</h2><span class="right"><span class="src">MongoDB · $unwind $group</span></span></div>
-    {% set mx = (alert_types|map(attribute='alerts')|max) if alert_types else 1 %}
-    <table class="tbl"><thead><tr><th>Type</th><th>Alerts</th><th>Prescriptions</th><th style="width:40%"></th></tr></thead>
-    {% for a in alert_types %}<tr><td>{{ a._id|title }}</td><td class="num">{{ a.alerts }}</td><td class="num">{{ a.prescriptions }}</td>
-      <td><div class="bar warn"><span style="width:{{ (100 * a.alerts / mx)|round }}%"></span></div></td></tr>{% endfor %}</table>
-  </div>
-  <div class="card">
-    <div class="card-head"><h2>Most common interaction effects</h2><span class="right"><span class="src">MongoDB · $match $group</span></span></div>
-    {% set mx2 = (top_effects|map(attribute='n')|max) if top_effects else 1 %}
-    <table class="tbl"><thead><tr><th>Effect</th><th>Alerts</th><th style="width:45%"></th></tr></thead>
-    {% for e in top_effects %}<tr><td>{{ e._id|effect }}</td><td class="num">{{ e.n }}</td><td><div class="bar"><span style="width:{{ (100 * e.n / mx2)|round }}%"></span></div></td></tr>{% endfor %}</table>
-  </div>
+{# ---------------- 1. patients to look at now ---------------- #}
+<h2 class="isec">Patients to look at now</h2>
+<section class="card">
+  <div class="card-head"><h2>Interacting medications being taken right now</h2><span class="right"><span class="src">PostgreSQL · self-join on v_active_medications</span></span></div>
+  <p class="muted small" style="margin:-6px 0 10px">Pairs of active prescriptions for the same patient whose ingredients have a recorded interaction.</p>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Patient</th><th>Drug 1</th><th>Drug 2</th><th>Effects</th><th></th></tr></thead>
+  {% for r in interacting_now %}<tr class="click" data-href="{{ url_for('patients.record', nric=r.nric) }}"><td><a href="{{ url_for('patients.record', nric=r.nric) }}">{{ r.patient_name }}</a></td><td>{{ r.drug_1 }}</td><td>{{ r.drug_2 }}</td>
+    <td class="small">{{ r.effects.split(', ')|map('effect')|join(', ') }}</td><td>{% if r.avoid %}<span class="chip ret">label says avoid</span>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="5" class="empty">None.</td></tr>{% endfor %}</table></div>
 </section>
 
 <section class="grid2">
-  <div class="card">
-    <div class="card-head"><h2>Alert rate per doctor</h2><span class="right"><span class="src">MongoDB · $group $cond</span></span></div>
-    <table class="tbl"><thead><tr><th>Doctor</th><th>Prescriptions</th><th>With alerts</th><th>Returned</th><th style="width:30%">Alert rate</th></tr></thead>
-    {% for d in per_doctor %}<tr><td>{{ d._id }}</td><td class="num">{{ d.total }}</td><td class="num">{{ d.alerted }}</td><td class="num">{{ d.returned }}</td>
-      <td><div class="row" style="gap:8px; flex-wrap:nowrap"><div class="bar warn" style="flex:1"><span style="width:{{ d.rate|round }}%"></span></div><span class="small num">{{ d.rate|round(1) }}%</span></div></td></tr>{% endfor %}</table>
-  </div>
-  <div class="card">
-    <div class="card-head"><h2>Review turnaround</h2><span class="right"><span class="src">MongoDB · $filter $subtract</span></span></div>
-    <table class="tbl"><thead><tr><th>Pharmacist</th><th>Reviews</th><th>Average hours</th><th>Longest</th></tr></thead>
-    {% for t in turnaround %}<tr><td>{{ t._id }}</td><td class="num">{{ t.reviews }}</td><td class="num">{{ t.avg|round(1) }}</td><td class="num">{{ t.max|round(1) }}</td></tr>{% endfor %}</table>
-    <h3 style="margin:18px 0 8px">Outcome with and without alerts</h3>
-    <table class="tbl"><thead><tr><th>Alerts?</th><th>Status</th><th>Prescriptions</th></tr></thead>
-    {% for o in outcome %}<tr><td>{{ 'Yes' if o._id.alerts else 'No' }}</td><td>{{ o._id.status }}</td><td class="num">{{ o.n }}</td></tr>{% endfor %}</table>
-  </div>
-</section>
-
-<section class="grid2">
-  <div class="card">
-    <div class="card-head"><h2>Most prescribed drugs</h2><span class="right"><span class="src">PostgreSQL · GROUP BY + rank()</span></span></div>
-    <table class="tbl"><thead><tr><th>#</th><th>Drug</th><th>Prescriptions</th><th>Patients</th></tr></thead>
-    {% for d in top_drugs %}<tr><td class="num">{{ d.rnk }}</td><td>{{ d.genericname }}</td><td class="num">{{ d.n }}</td><td class="num">{{ d.patients }}</td></tr>{% endfor %}</table>
-    <h3 style="margin:18px 0 8px">Prescriptions by status</h3>
-    <div class="row">{% for s in status_counts %}<div class="stat"><div class="k">{{ s.status }}</div><div class="v num">{{ s.n }}</div></div>{% endfor %}</div>
-  </div>
   <div class="card">
     <div class="card-head"><h2>Patients on more medicines than average</h2><span class="right"><span class="src">PostgreSQL · HAVING + subquery</span></span></div>
     <table class="tbl"><thead><tr><th>Patient</th><th>Active medications</th></tr></thead>
     {% for p in polypharmacy %}<tr class="click" data-href="{{ url_for('patients.record', nric=p.nric) }}"><td><a href="{{ url_for('patients.record', nric=p.nric) }}">{{ p.patient_name }}</a></td><td class="num">{{ p.meds }}</td></tr>
     {% else %}<tr><td colspan="2" class="empty">None.</td></tr>{% endfor %}</table>
   </div>
+  <div class="card">
+    <div class="card-head"><h2>Most prescribed drugs</h2><span class="right"><span class="src">PostgreSQL · GROUP BY + rank()</span></span></div>
+    <table class="tbl"><thead><tr><th>#</th><th>Drug</th><th>Prescriptions</th><th>Patients</th></tr></thead>
+    {% for d in top_drugs %}<tr><td class="num">{{ d.rnk }}</td><td>{{ d.genericname }}</td><td class="num">{{ d.n }}</td><td class="num">{{ d.patients }}</td></tr>{% endfor %}</table>
+  </div>
 </section>
 
+{# ---------------- 2. alerts and overrides ---------------- #}
+<h2 class="isec">Alerts and overrides</h2>
 <section class="card">
-  <div class="card-head"><h2>Interacting medications being taken right now</h2><span class="right"><span class="src">PostgreSQL · self-join on v_active_medications</span></span></div>
-  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Patient</th><th>Drug 1</th><th>Drug 2</th><th>Effects</th><th></th></tr></thead>
-  {% for r in interacting_now %}<tr class="click" data-href="{{ url_for('patients.record', nric=r.nric) }}"><td><a href="{{ url_for('patients.record', nric=r.nric) }}">{{ r.patient_name }}</a></td><td>{{ r.drug_1 }}</td><td>{{ r.drug_2 }}</td>
-    <td class="small">{{ r.effects.split(', ')|map('effect')|join(', ') }}</td><td>{% if r.avoid %}<span class="chip ret">label says avoid</span>{% endif %}</td></tr>
-  {% else %}<tr><td colspan="5" class="empty">None.</td></tr>{% endfor %}</table></div>
+  <div class="card-head"><h2>When a doctor overrode an alert, what did the pharmacist do?</h2><span class="right"><span class="src">MongoDB · $filter $setUnion $unwind $group</span></span></div>
+  {% if alerted %}
+  <div class="row" style="margin-bottom:14px">
+    <div class="stat"><div class="k">Sent despite alerts</div><div class="v num">{{ alerted.total }}</div></div>
+    <div class="stat"><div class="k">With a written reason</div><div class="v num">{{ alerted.withReason }}</div></div>
+    <div class="stat"><div class="k">Returned by pharmacist</div><div class="v num">{{ alerted.returned }}{% if alerted.return_rate is not none %} <span class="small muted">({{ alerted.return_rate|round(1) }}%)</span>{% endif %}</div></div>
+    <div class="stat"><div class="k">Still waiting</div><div class="v num">{{ alerted.pending }}</div></div>
+  </div>
+  {% endif %}
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Alert type</th><th>Prescriptions</th><th>Approved</th><th>Returned</th><th>Waiting</th><th style="width:26%">Returned, of those decided</th></tr></thead>
+    {% for r in overrides %}
+    <tr{% if r._id == 'none' %} class="baseline"{% endif %}><td>{{ r.label }}{% if r._id == 'none' %} <span class="sub">for comparison</span>{% endif %}</td>
+      <td class="num">{{ r.total }}</td><td class="num">{{ r.approved }}</td><td class="num">{{ r.returned }}</td><td class="num">{{ r.pending }}</td>
+      <td>{% if r.return_rate is not none %}<div class="row" style="gap:8px; flex-wrap:nowrap"><div class="bar warn" style="flex:1"><span style="width:{{ r.return_rate|round }}%"></span></div><span class="small num">{{ r.return_rate|round(1) }}%</span></div>{% else %}<span class="muted small">none decided yet</span>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="6" class="empty">No prescriptions yet.</td></tr>{% endfor %}
+  </table></div>
+  <p class="hint" style="margin-top:10px">A prescription with two kinds of alert is counted in both rows. A doctor who sees an alert and chooses a different drug sends nothing, so those decisions aren't in this table.</p>
+</section>
+
+{# ---------------- 3. about the system ---------------- #}
+<h2 class="isec">About the system</h2>
+<section class="grid2">
+  <div class="card">
+    <div class="card-head"><h2>Review turnaround</h2><span class="right"><span class="src">MongoDB · $filter $subtract</span></span></div>
+    <table class="tbl"><thead><tr><th>Pharmacist</th><th>Reviews</th><th>Average hours</th><th>Longest</th></tr></thead>
+    {% for t in turnaround %}<tr><td>{{ t._id }}</td><td class="num">{{ t.reviews }}</td><td class="num">{{ t.avg|round(1) }}</td><td class="num">{{ t.max|round(1) }}</td></tr>{% endfor %}</table>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Prescriptions by status</h2><span class="right"><span class="src">PostgreSQL · GROUP BY</span></span></div>
+    <div class="row">{% for s in status_counts %}<div class="stat"><div class="k">{{ s.status }}</div><div class="v num">{{ s.n }}</div></div>{% endfor %}</div>
+  </div>
 </section>
 {% endblock %}
