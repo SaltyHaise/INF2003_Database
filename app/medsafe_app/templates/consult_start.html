@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Consult{% endblock %}
+{% block content %}
+<section class="narrow">
+  <h1>Start a consultation</h1>
+  <p class="muted" style="margin:6px 0 14px">Find the patient. Their allergies, medicines and recent visits open beside the visit form.</p>
+  <div class="card">
+    <div class="field ac" data-src="{{ url_for('api.patients') }}" data-go="{{ url_for('consult.visit', nric='__ID__')|replace('__ID__', '{id}') }}" style="margin:0">
+      <label class="f" for="consult-q">Patient</label>
+      <input type="text" id="consult-q" placeholder="Search by name or NRIC" autofocus>
+      <div class="hint">Pick a patient from the list to open the consultation.</div>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Your recent visits</h2><span class="right"><span class="src">MongoDB · encounters</span></span></div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Date</th><th>Patient</th><th>Complaint</th><th>Visit</th><th></th></tr></thead>
+    <tbody>
+    {% for v in recent %}
+      <tr class="click" data-href="{{ url_for('patients.record', nric=v.nric) }}#visits">
+        <td class="nowrap">{{ v.visitDate|d }}</td>
+        <td><a href="{{ url_for('patients.record', nric=v.nric) }}#visits">{{ v.name }}</a></td>
+        <td>{{ v.triage.chiefComplaint }}</td>
+        <td class="small">{{ v.visitType }}</td>
+        <td><a class="btn sm" href="{{ url_for('consult.visit', nric=v.nric) }}">New visit</a></td>
+      </tr>
+    {% else %}<tr><td colspan="5" class="empty">No visits yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

@@ -30,12 +30,13 @@ def create_app():
 
     from .auth import bp as auth_bp
     from .api import bp as api_bp
+    from .consult import bp as consult_bp
     from .doctor import bp as doctor_bp
     from .patients import bp as patients_bp
     from .pharmacist import bp as pharmacist_bp
     from .reference import bp as reference_bp
     from .insights import bp as insights_bp
-    for bp in (auth_bp, api_bp, doctor_bp, patients_bp, pharmacist_bp, reference_bp, insights_bp):
+    for bp in (auth_bp, api_bp, consult_bp, doctor_bp, patients_bp, pharmacist_bp, reference_bp, insights_bp):
         app.register_blueprint(bp)
 
     # --- simple CSRF protection for every form POST ------------------------------

@@ -10,9 +10,8 @@ from datetime import date, datetime, time
 import psycopg
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 from pymongo.errors import DuplicateKeyError, PyMongoError, WriteError
-from werkzeug.datastructures import MultiDict
 
-from . import exam, records
+from . import records
 from .auth import current_user, role_required
 from .db import mongo, pg, query, query_one
 from .util import now, today
@@ -144,11 +143,6 @@ def edit(nric):
 @bp.route("/patients/<nric>")
 @role_required("doctor", "pharmacist")
 def record(nric):
-    return _render_record(nric)
-
-
-def _render_record(nric, vform=None, visit_errors=None):
-    """The record page. `vform` refills the Add visit form after a refused save."""
     p = records.patient(nric) or abort(404)
     notes_q = (request.args.get("notes") or "").strip()[:100]
     try:
@@ -162,8 +156,7 @@ def _render_record(nric, vform=None, visit_errors=None):
         "patient.html", p=p, allergies=records.allergies(nric), active=records.active_meds(nric),
         others=records.other_prescriptions(nric), dxs=records.diagnoses(nric), hist=hist, visits=visits,
         labs=labs, notes_q=notes_q, mongo_ok=mongo_ok,
-        diseases=query("SELECT DiseaseID, Name FROM Disease ORDER BY Name"),
-        vform=vform if vform is not None else MultiDict(), visit_errors=visit_errors or [])
+        diseases=query("SELECT DiseaseID, Name FROM Disease ORDER BY Name"))
 
 
 # ---- allergies (PostgreSQL) ----------------------------------------------------------
@@ -313,88 +306,3 @@ def history_error(nric, hid):
     mongo().patient_history.update_one({"_id": hid, "nric": nric}, {"$set": {"status": "entered_in_error"}})
     flash("History event marked as entered in error.", "success")
     return redirect(url_for("patients.record", nric=nric) + "#history")
-
-
-# ---- visits: triage + history + examination + plan (MongoDB encounters) ---------------
-@bp.route("/patients/<nric>/visits", methods=["POST"])
-@role_required("doctor")
-def add_visit(nric):
-    """One visit, in the order of a consultation (see exam.py for the saved shape):
-    triage (complaint, vitals, pain score), history (what the patient says),
-    examination (what the doctor finds), then assessment and plan (diagnoses, note)."""
-    f = request.form
-    user = current_user()
-    errors = []
-    dx_ids = [int(x) for x in f.getlist("diagnosis_ids") if x.isdigit()]
-    valid = {g["diagnosisid"] for g in records.diagnoses(nric)}
-    dx_ids = [d for d in dx_ids if d in valid]
-    doc_row = query_one("SELECT Hospital FROM Doctor WHERE DoctorID = %s", (user["id"],))
-
-    def num(name, cast=int):
-        v = f.get(name, "").strip()
-        return cast(v) if v else None
-
-    # ---- triage ----------------------------------------------------------------------
-    complaint = " ".join(f.get("complaint", "").split())[:200]
-    if not complaint:
-        errors.append("Enter the chief complaint.")
-    vitals = {}
-    try:
-        for key, field, cast in (("systolicBP", "sbp", int), ("diastolicBP", "dbp", int), ("heartRate", "hr", int),
-                                 ("respRate", "rr", int), ("temperatureC", "temp", float), ("spo2", "spo2", int),
-                                 ("weightKg", "weight", float)):
-            v = num(field, cast)
-            if v is not None:
-                vitals[key] = v
-    except ValueError:
-        errors.append("Vitals must be numbers (whole numbers except temperature and weight).")
-    else:
-        missing = [n for n, k in (("systolic BP", "systolicBP"), ("diastolic BP", "diastolicBP"),
-                                  ("heart rate", "heartRate"), ("temperature", "temperatureC"), ("SpO2", "spo2"))
-                   if k not in vitals]
-        if missing:
-            errors.append("Enter " + ", ".join(missing) + ".")
-    try:
-        pain_score = max(0, min(10, num("pain") or 0))
-    except ValueError:
-        pain_score = 0
-        errors.append("Pain score must be a whole number from 0 to 10.")
-
-    # ---- history and examination (structured) ----------------------------------------
-    history, exam_list, exam_errors = exam.parse(f)
-    errors += exam_errors
-
-    # ---- assessment and plan ---------------------------------------------------------
-    if not dx_ids:
-        errors.append("Tick at least one diagnosis this visit addressed.")
-    plan_note = f.get("note", "").strip()[:3000]
-    note = exam.compose_note(complaint, history, exam_list, pain_score, plan_note)
-    if len(note) < 10:
-        errors.append("Record what the patient told you, what you found, or a note of 10 or more characters.")
-
-    if errors:
-        return _render_record(nric, vform=f, visit_errors=errors), 400
-
-    consultation = {"note": note[:4000], "diagnosisIds": dx_ids, "formVersion": exam.FORM_VERSION}
-    if history:
-        consultation["history"] = history
-    if exam_list:
-        consultation["exam"] = exam_list
-    if plan_note:
-        consultation["plan"] = plan_note
-    if num("follow_up"):
-        consultation["followUpInDays"] = num("follow_up")
-    doc = {
-        "nric": nric, "visitDate": now(), "visitType": f.get("visit_type") if f.get("visit_type") in ("new problem", "follow-up") else "follow-up",
-        "doctor": {"doctorId": user["id"], "name": user["name"], "hospital": (doc_row or {}).get("hospital") or ""},
-        "triage": {"recordedAt": now(), "category": f.get("category") if f.get("category") in ("P1", "P2", "P3", "P4") else "P4",
-                   "chiefComplaint": complaint, "painScore": pain_score, "vitals": vitals},
-        "consultation": consultation,
-        "prescriptionIds": [],
-    }
-    try:
-        eid = _insert_with_id("encounters", "E", doc)
-        flash(f"Visit {eid} saved.", "success")
-    except WriteError as e:
-        return _render_record(nric, vform=f, visit_errors=[f"MongoDB refused the visit: {_mongo_error(e)}"]), 400
-    return redirect(url_for("patients.record", nric=nric) + "#visits")

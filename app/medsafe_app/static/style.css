@@ -202,8 +202,8 @@ details.panel[open] > summary { margin-bottom: 12px; }
 .picks { display: flex; flex-wrap: wrap; gap: 6px; }
 .pick { display: inline-flex; cursor: pointer; position: relative; }
 .pick input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.pick span { font-size: 13px; padding: 4px 11px; border: 1px solid var(--line-strong); border-radius: 999px; background: #fff; color: var(--muted); }
-.pick:hover span { border-color: var(--blue); }
+.pick > span { font-size: 13px; padding: 4px 11px; border: 1px solid var(--line-strong); border-radius: 999px; background: #fff; color: var(--muted); }
+.pick:hover > span { border-color: var(--blue); }
 .pick input:checked + span { background: var(--blue-soft); border-color: var(--blue); color: var(--blue-text); font-weight: 600; }
 .pick.normal input:checked + span { background: var(--green-soft); border-color: #9fd3b2; color: var(--green-text); }
 .pick input:focus-visible + span { outline: 2px solid var(--blue); outline-offset: 2px; }
@@ -231,3 +231,13 @@ details.panel[open] > summary { margin-bottom: 12px; }
 .who-list button { text-align: left; font: inherit; background: #fff; border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
 .who-list button:hover { border-color: var(--blue); background: #f7faff; }
 .who-list small { display: block; color: var(--muted); }
+
+/* consult page: context on the left, visit form on the right */
+.consult-allergy { margin: 0; }
+.consult-grid { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.consult-ctx { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow-y: auto; }
+.consult-ctx .card { padding: 14px 16px; }
+.consult-ctx .card-head h2 { font-size: 15px; }
+.ctx-row { padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.ctx-row:first-of-type { border-top: 0; }
+@media (max-width: 1000px) { .consult-grid { grid-template-columns: 1fr; } .consult-ctx { position: static; max-height: none; } }

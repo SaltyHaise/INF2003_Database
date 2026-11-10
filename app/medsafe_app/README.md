@@ -40,8 +40,9 @@ Open **http://127.0.0.1:5000**, pick a doctor or pharmacist, and you're in.
 
 | Screen | Who | What it does |
 |---|---|---|
+| Consult | Doctor | The doctor's start page. Pick a patient; allergies, active medicines, diagnoses, labs and recent visits sit beside the visit form (triage, history, examination, assessment and plan). A new diagnosis can be added on the form. Save, or save and go straight to Prescribe |
 | Prescribe | Doctor | Choose patient and condition; see drugs for that condition each checked against the patient; choose a dose template or write one; give a reason if there are alerts; send to the pharmacy |
-| Patient records | Doctor (edit), pharmacist (view) | Details, allergies, active and past prescriptions, diagnoses, medical history, visits (triage, history, examination, plan), lab results |
+| Patient records | Doctor (edit), pharmacist (view) | Details, allergies, active and past prescriptions, diagnoses, medical history, past visits (triage, history, examination, plan) with note search, lab results; Start consultation opens Consult |
 | Review queue | Pharmacist | Pending prescriptions, alerts first; three checks; approve and dispense, or return to the doctor with a note |
 | Dispensed | Pharmacist | Recently approved and returned prescriptions |
 | Drug reference | Both | Look up an ingredient or drug: products, recorded interactions, side effects |

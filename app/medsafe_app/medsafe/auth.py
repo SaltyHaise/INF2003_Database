@@ -41,7 +41,7 @@ def home():
     user = current_user()
     if not user:
         return redirect(url_for("auth.login"))
-    return redirect(url_for("doctor.prescribe" if user["role"] == "doctor" else "pharmacist.queue"))
+    return redirect(url_for("consult.start" if user["role"] == "doctor" else "pharmacist.queue"))
 
 
 @bp.route("/login", methods=["GET", "POST"])

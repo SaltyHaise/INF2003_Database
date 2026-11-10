@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf with context %}
+{% block title %}Consult · {{ p.name }}{% endblock %}
+{% block content %}
+{# patient strip and allergies stay at the top; context on the left, the visit form on the right #}
+<section class="card row" style="gap:18px; padding:14px 22px">
+  <div class="avatar">{{ p.name|initials }}</div>
+  <div>
+    <h1 style="font-size:22px">{{ p.name }}</h1>
+    <div class="muted small">{{ {'F': 'Female', 'M': 'Male'}.get(p.sex, 'Sex not recorded') }} · {{ p.dob|age }} yrs · <span class="mono">{{ p.nric }}</span></div>
+  </div>
+  <a class="btn" style="margin-left:auto" href="{{ url_for('patients.record', nric=p.nric) }}">Full record</a>
+</section>
+
+<div class="allergy-band consult-allergy">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>
+  <b>Allergies</b>
+  {% for a in allergies %}<span class="tagpill">{{ a.ingredientname }} — {{ (a.reactions or 'reaction not recorded')|lower }}, {{ (a.severity or '')|lower }}</span>
+  {% else %}<span>None recorded. Ask the patient and add any on the full record.</span>{% endfor %}
+</div>
+
+<section class="consult-grid">
+  <aside class="consult-ctx">
+    <div class="card">
+      <div class="card-head"><h2>Active medications</h2><span class="right"><span class="src">PostgreSQL</span></span></div>
+      {% for m in active %}<div class="ctx-row"><b>{{ m.genericname }}</b><div class="sub">{{ m|dose }} · for {{ m.disease|lower }}</div></div>
+      {% else %}<p class="empty" style="margin:0">None.</p>{% endfor %}
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Diagnoses</h2><span class="right"><span class="src">PostgreSQL</span></span></div>
+      {% for g in dxs %}<div class="ctx-row">{{ g.disease }} <span class="sub">{{ g.dateofdiagnosis|mon }}</span></div>
+      {% else %}<p class="empty" style="margin:0">None.</p>{% endfor %}
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Lab results</h2><span class="right"><span class="src">MongoDB</span></span></div>
+      {% for l in labs %}<div class="ctx-row row" style="justify-content:space-between"><span>{{ l.testName }}</span>
+        <span class="num nowrap"><span class="{{ 'flag-h' if l.flag == 'H' else 'flag-l' if l.flag == 'L' }}">{{ l.value }}{% if l.flag != 'N' %} {{ l.flag }}{% endif %}</span> <span class="sub">{{ l.unit }} · {{ l.collectedAt|d }}</span></span></div>
+      {% else %}<p class="empty" style="margin:0">{{ 'No lab results.' if mongo_ok else 'MongoDB unavailable.' }}</p>{% endfor %}
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Recent visits</h2><span class="right"><span class="src">MongoDB</span></span></div>
+      {% for v in visits %}<div class="ctx-row"><b>{{ v.visitDate|d }}</b> · {{ v.triage.chiefComplaint }}<div class="sub">{{ v.doctor.name }}{% if v.consultation.plan %} · {{ v.consultation.plan|truncate(90) }}{% endif %}</div></div>
+      {% else %}<p class="empty" style="margin:0">No earlier visits.</p>{% endfor %}
+    </div>
+  </aside>
+
+  <div>
+  <form method="post" id="visit-form" class="card" action="{{ url_for('consult.save', nric=p.nric) }}">
+    {{ csrf() }}
+    {% if visit_errors %}<div class="flash error" role="alert" style="margin-bottom:10px"><b>The visit wasn't saved.</b><ul style="margin:6px 0 0 18px; padding:0">{% for e in visit_errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+
+    <h3 class="vstep">1. Triage</h3>
+    <div class="fields">
+      <div style="grid-column: span 2"><label class="f" for="v-cc">Chief complaint</label><input type="text" id="v-cc" name="complaint" maxlength="200" required value="{{ vf.get('complaint', '') }}" placeholder="Fever and cough for 4 days"></div>
+      <div><label class="f" for="v-cat">Triage</label><select id="v-cat" name="category">{% for c in ['P4', 'P3', 'P2', 'P1'] %}<option {{ 'selected' if vf.get('category') == c }}>{{ c }}</option>{% endfor %}</select></div>
+      <div><label class="f" for="v-type">Visit</label><select id="v-type" name="visit_type">{% for t in ['follow-up', 'new problem'] %}<option {{ 'selected' if vf.get('visit_type') == t }}>{{ t }}</option>{% endfor %}</select></div>
+      <div><label class="f" for="v-sbp">Systolic BP</label><input type="number" id="v-sbp" name="sbp" min="50" max="260" required value="{{ vf.get('sbp', '') }}"></div>
+      <div><label class="f" for="v-dbp">Diastolic BP</label><input type="number" id="v-dbp" name="dbp" min="20" max="160" required value="{{ vf.get('dbp', '') }}"></div>
+      <div><label class="f" for="v-hr">Heart rate</label><input type="number" id="v-hr" name="hr" min="20" max="250" required value="{{ vf.get('hr', '') }}"></div>
+      <div><label class="f" for="v-rr">Resp. rate</label><input type="number" id="v-rr" name="rr" min="4" max="60" value="{{ vf.get('rr', '') }}"></div>
+      <div><label class="f" for="v-t">Temp °C</label><input type="number" id="v-t" name="temp" min="30" max="44" step="0.1" required value="{{ vf.get('temp', '') }}"></div>
+      <div><label class="f" for="v-spo2">SpO2 %</label><input type="number" id="v-spo2" name="spo2" min="50" max="100" required value="{{ vf.get('spo2', '') }}"></div>
+      <div><label class="f" for="v-wt">Weight kg</label><input type="number" id="v-wt" name="weight" min="1" max="400" step="0.1" value="{{ vf.get('weight', '') }}"></div>
+      <div><label class="f" for="v-pain">Pain 0–10</label><input type="number" id="v-pain" name="pain" min="0" max="10" value="{{ vf.get('pain', '0') }}"></div>
+    </div>
+
+    <h3 class="vstep">2. History <span class="muted small">what the patient tells you</span></h3>
+    {% set picked = vf.getlist('symptoms') %}
+    <div class="picks" role="group" aria-label="Symptoms">
+      {% for code, label in EXAM_SYMPTOMS %}<label class="pick"><input type="checkbox" name="symptoms" value="{{ code }}" {{ 'checked' if code in picked }}><span>{{ label }}</span></label>{% endfor %}
+    </div>
+    <div class="fields" style="margin-top:10px">
+      <div><label class="f" for="v-dur">How long</label><input type="text" id="v-dur" name="hx_duration" maxlength="40" value="{{ vf.get('hx_duration', '') }}" placeholder="4 days"></div>
+      <div><label class="f" for="v-psite">Pain site</label><input type="text" id="v-psite" name="pain_site" maxlength="80" value="{{ vf.get('pain_site', '') }}" placeholder="right chest"></div>
+      <div><label class="f" for="v-ptrig">Worse with</label><input type="text" id="v-ptrig" name="pain_trigger" maxlength="80" value="{{ vf.get('pain_trigger', '') }}" placeholder="coughing"></div>
+    </div>
+    <div class="field" style="margin-top:10px"><label class="f" for="v-hx">Other answers</label><textarea id="v-hx" name="hx_notes" maxlength="1000" placeholder="Yellow sputum. Took paracetamol at home. Grandson had flu last week.">{{ vf.get('hx_notes', '') }}</textarea></div>
+
+    <h3 class="vstep">3. Examination <span class="muted small">tick each part you examined</span></h3>
+    {% set systems_on = vf.getlist('exam_systems') %}
+    <div class="picks" role="group" aria-label="Parts examined">
+      {% for s in EXAM_SYSTEMS %}<label class="pick sys"><input type="checkbox" name="exam_systems" value="{{ s.key }}" data-keywords="{{ s.keywords|join('|') }}" {{ 'checked' if s.key in systems_on }}><span>{{ s.label }}</span></label>{% endfor %}
+    </div>
+    <div class="exam-list">
+      {% for s in EXAM_SYSTEMS %}{% set got = vf.getlist('exam_' ~ s.key) %}
+      <div class="exam-sys" data-system="{{ s.key }}" {{ 'hidden' if s.key not in systems_on }}>
+        <span class="lbl">{{ s.label }}</span>
+        <div>
+          <div class="picks">
+            <label class="pick normal"><input type="checkbox" name="exam_{{ s.key }}" value="normal" {{ 'checked' if 'normal' in got }}><span>{{ s.normal }}</span></label>
+            {% for code, label in s.findings %}<label class="pick"><input type="checkbox" name="exam_{{ s.key }}" value="{{ code }}" {{ 'checked' if code in got }}><span>{{ label }}</span></label>{% endfor %}
+          </div>
+          <input type="text" name="exam_{{ s.key }}_note" maxlength="300" aria-label="{{ s.label }} details" placeholder="Details (side, size, where)" value="{{ vf.get('exam_' ~ s.key ~ '_note', '') }}" style="margin-top:6px">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <h3 class="vstep">4. Assessment and plan</h3>
+    {% set dx_picked = vf.getlist('diagnosis_ids') %}
+    <div class="field"><label class="f">Diagnoses this visit addressed</label>
+      <div class="picks">{% for g in dxs %}<label class="pick"><input type="checkbox" name="diagnosis_ids" value="{{ g.diagnosisid }}" {{ 'checked' if g.diagnosisid|string in dx_picked }}><span>{{ g.disease }} · {{ g.dateofdiagnosis|mon }}</span></label>{% else %}<span class="muted small">No diagnoses yet. Add one below.</span>{% endfor %}</div></div>
+    <div class="field ac" data-src="{{ url_for('api.diseases') }}">
+      <label class="f" for="v-newdx">New diagnosis <span class="muted small">optional</span></label>
+      <input type="text" id="v-newdx" name="new_disease_q" placeholder="Pneumonia, hypertension" value="{{ vf.get('new_disease_q', '') }}">
+      <input type="hidden" name="new_disease_id" value="{{ vf.get('new_disease_id', '') }}">
+      <div class="hint">Saved to the patient's diagnoses together with the visit.</div>
+    </div>
+    <div class="field"><label class="f" for="v-note">Plan and other notes</label><textarea id="v-note" name="note" maxlength="3000" placeholder="Start antibiotics, review in 3 days, return if breathless.">{{ vf.get('note', '') }}</textarea>
+      <div class="hint">History and examination are added to the saved note automatically, so note search finds them.</div></div>
+    <div class="row" style="align-items:center"><label class="small" for="v-fu">Follow up in (days)</label><input type="number" id="v-fu" name="follow_up" min="1" max="365" style="width:100px" value="{{ vf.get('follow_up', '') }}">
+      <span style="margin-left:auto" class="row">
+        <button class="btn" name="next" value="record">Save visit</button>
+        <button class="btn primary" name="next" value="prescribe">Save and prescribe</button>
+      </span></div>
+  </form>
+  </div>
+</section>
+{% endblock %}
