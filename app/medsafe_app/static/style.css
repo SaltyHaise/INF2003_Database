@@ -52,8 +52,6 @@ code, .mono { font-family: var(--mono); font-size: 12.5px; }
 .nav a { padding: 7px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; }
 .nav a:hover { background: var(--bg); color: var(--ink); }
 .nav a.on { background: var(--blue-soft); color: var(--blue-text); font-weight: 600; }
-.topsearch { flex: 1; max-width: 460px; }
-.topsearch input { width: 100%; }
 .who { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .role { font-size: 11px; font-weight: 700; letter-spacing: .06em; padding: 3px 8px; border-radius: 5px; }
 .role.doctor { background: var(--blue-soft); color: var(--blue-text); }
@@ -71,7 +69,7 @@ code, .mono { font-family: var(--mono); font-size: 12.5px; }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-@media (max-width: 1000px) { .grid2, .grid-3-2, .split { grid-template-columns: 1fr; } .topsearch { display: none; } }
+@media (max-width: 1000px) { .grid2, .grid-3-2, .split { grid-template-columns: 1fr; } }
 
 .src { font-family: var(--mono); font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; background: #fafbfc; white-space: nowrap; }
 
@@ -248,10 +246,15 @@ details.panel[open] > summary { margin-bottom: 12px; }
 .nav { flex: none; align-items: center; }
 .nav a { white-space: nowrap; }
 .nav-sep { width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
-.topsearch { flex: none; width: 230px; margin-left: auto; }
-.topsearch input { height: 36px; padding: 6px 12px; font-size: 14px; }
-.topsearch + .who { margin-left: 0; }
-@media (max-width: 1150px) { .topsearch { width: 160px; } .nav a { padding: 7px 9px; } }
+@media (max-width: 1150px) { .nav a { padding: 7px 9px; } }
+
+/* drug reference: A to Z drug list */
+.az { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+.az a, .az span { min-width: 30px; padding: 5px 0; text-align: center; border-radius: 7px; text-decoration: none; font-weight: 600; font-size: 14px; }
+.az a { color: var(--muted); }
+.az a:hover { background: var(--bg); color: var(--ink); }
+.az a.on { background: var(--blue-soft); color: var(--blue-text); }
+.az span { color: var(--line); }
 
 /* database source tags: still there for the demo, but quieter */
 .src { font-size: 11px; color: var(--faint); border-color: transparent; background: #f4f5f7; }

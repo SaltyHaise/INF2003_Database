@@ -31,9 +31,6 @@
       <a href="{{ url_for('reference.reference') }}" class="{{ 'on' if ep.startswith('reference.') }}">Drug reference</a>
       <a href="{{ url_for('insights.insights') }}" class="{{ 'on' if ep.startswith('insights.') }}">Insights</a>
     </nav>
-    <div class="topsearch ac" data-src="{{ url_for('api.patients') }}" data-go="{{ url_for('patients.record', nric='__ID__')|replace('__ID__', '{id}') }}">
-      <input type="search" id="top-patient" placeholder="Find patient" aria-label="Find patient by name or NRIC">
-    </div>
     <div class="who">
       <span class="role {{ user.role }}">{{ user.role|upper }}</span>
       <span>{{ user.name }}</span>

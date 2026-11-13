@@ -19,6 +19,24 @@
 <section class="card"><p class="empty">Nothing matches "{{ q }}". Try part of the name, e.g. "metf".</p></section>
 {% endif %}
 
+{% if drugs is defined %}
+<section class="card">
+  <div class="card-head"><h2>All drugs</h2><span class="muted small">{{ drug_total }} drugs · {{ drugs|length }} starting with {{ letter }}</span><span class="right"><span class="src">Drug ⋈ Contains</span></span></div>
+  <nav class="az" aria-label="Drugs by first letter">
+    {% for l in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' %}{% if l in letters %}<a href="{{ url_for('reference.reference', letter=l) }}" class="{{ 'on' if l == letter }}" {{ 'aria-current="page"'|safe if l == letter }}>{{ l }}</a>{% else %}<span aria-hidden="true">{{ l }}</span>{% endif %}{% endfor %}
+  </nav>
+  <div class="tbl-wrap" style="max-height:620px; overflow:auto"><table class="tbl">
+    <thead><tr><th>Drug</th><th>Active ingredients</th><th>Dose templates</th></tr></thead>
+    {% for d in drugs %}
+    <tr><td><b>{{ d.genericname }}</b></td>
+        <td>{% for i in d.ingredients or [] %}<a href="{{ url_for('reference.reference', ingredient_id=i.id) }}">{{ i.name }}</a>{{ ', ' if not loop.last }}{% else %}<span class="muted">—</span>{% endfor %}</td>
+        <td class="num">{{ d.templates or '—' }}</td></tr>
+    {% else %}<tr><td colspan="3" class="empty">No drugs.</td></tr>{% endfor %}
+  </table></div>
+  <p class="hint">Choose an ingredient to see its products, interactions and side effects.</p>
+</section>
+{% endif %}
+
 {% if ing %}
 <section class="card row" style="align-items:flex-start">
   <div style="flex:1; min-width:240px">

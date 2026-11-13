@@ -8,6 +8,24 @@ from .db import query, query_one
 bp = Blueprint("reference", __name__)
 
 
+def drug_list(letter):
+    """Drugs starting with one letter, each with its ingredients, for browsing without a search."""
+    letters = {r["letter"]: r["n"] for r in query(
+        "SELECT upper(left(GenericName, 1)) AS letter, count(*) AS n FROM Drug GROUP BY 1 ORDER BY 1")}
+    letter = letter.strip().upper()[:1]
+    if letter not in letters:
+        letter = next(iter(letters), "")
+    drugs = query("""
+        SELECT d.DrugID, d.GenericName,
+               (SELECT json_agg(json_build_object('id', ai.IngredientID, 'name', ai.IngredientName) ORDER BY ai.IngredientName)
+                FROM Contains c JOIN ActiveIngredients ai ON ai.IngredientID = c.IngredientID
+                WHERE c.DrugID = d.DrugID) AS ingredients,
+               (SELECT count(*) FROM PrescriptionTemplate t WHERE t.DrugID = d.DrugID) AS templates
+        FROM Drug d WHERE upper(left(d.GenericName, 1)) = %s
+        ORDER BY d.GenericName""", (letter,))
+    return {"letters": letters, "letter": letter, "drugs": drugs, "drug_total": sum(letters.values())}
+
+
 @bp.route("/reference")
 @role_required("doctor", "pharmacist")
 def reference():
@@ -35,6 +53,8 @@ def reference():
             if len(ctx["matches"]) == 1:
                 ing_id = ctx["matches"][0]["ingredientid"]
     if not ing_id:
+        if not q:
+            ctx.update(drug_list(request.args.get("letter", "")))
         return render_template("reference.html", **ctx)
 
     ing = query_one("SELECT IngredientID, IngredientName FROM ActiveIngredients WHERE IngredientID = %s", (ing_id,))
