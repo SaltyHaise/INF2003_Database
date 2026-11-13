@@ -241,3 +241,41 @@ details.panel[open] > summary { margin-bottom: 12px; }
 .ctx-row { padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .ctx-row:first-of-type { border-top: 0; }
 @media (max-width: 1000px) { .consult-grid { grid-template-columns: 1fr; } .consult-ctx { position: static; max-height: none; } }
+
+/* ---- readability pass ---------------------------------------------------- */
+/* navbar: fixed height and fixed slots, so nothing moves between pages or roles */
+.topbar-in { height: 60px; padding-top: 0; padding-bottom: 0; }
+.nav { flex: none; align-items: center; }
+.nav a { white-space: nowrap; }
+.nav-sep { width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
+.topsearch { flex: none; width: 230px; margin-left: auto; }
+.topsearch input { height: 36px; padding: 6px 12px; font-size: 14px; }
+.topsearch + .who { margin-left: 0; }
+@media (max-width: 1150px) { .topsearch { width: 160px; } .nav a { padding: 7px 9px; } }
+
+/* database source tags: still there for the demo, but quieter */
+.src { font-size: 11px; color: var(--faint); border-color: transparent; background: #f4f5f7; }
+
+/* alert cards: one per drug pair, effects as short chips, label text folded away */
+.acard { background: var(--warn-soft); border: 1px solid var(--warn-line); border-left: 4px solid #e0a26b; border-radius: 0 8px 8px 0; padding: 10px 14px; color: var(--warn-text); }
+.acard.avoid { border-left-color: var(--red-text); }
+.acard-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; line-height: 1.35; }
+.acard-head b { color: #6f2c08; }
+.akind { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #9a5a2c; min-width: 84px; }
+.effects { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 7px 0 0 92px; }
+.echip { font-size: 12.5px; background: #fff; border: 1px solid var(--warn-line); border-radius: 999px; padding: 2px 9px; color: #7b3b12; }
+.awith { font-size: 12.5px; color: #9a6a4a; margin-left: 2px; }
+.label-text { margin: 6px 0 0 92px; font-size: 12.5px; color: #7b4a2a; }
+.label-text summary { cursor: pointer; color: #9a6a4a; text-decoration: underline; width: max-content; }
+.label-text p { margin: 6px 0 0; line-height: 1.5; max-width: 72ch; }
+.alertbox .acard { background: #fff8f2; }
+.ix-line { line-height: 1.4; margin-bottom: 3px; }
+.ix-line b { color: inherit; text-transform: capitalize; font-weight: 600; }
+
+/* record page */
+.quiet-summary > summary { display: none; }
+.quiet-summary:not([open]) { display: none; }
+.hist-row .facts { font-family: var(--sans); font-size: 13.5px; color: var(--ink); }
+.row-action { opacity: 0; transition: opacity .15s; }
+.hist-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
+@media (hover: none) { .row-action { opacity: 1; } }

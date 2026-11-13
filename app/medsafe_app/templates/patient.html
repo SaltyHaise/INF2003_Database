@@ -31,8 +31,9 @@
     {% if doctor %}<a href="#allergies" style="margin-left:auto; color:inherit" onclick="document.getElementById('edit-allergies').open = !document.getElementById('edit-allergies').open; return false;">Edit allergies</a>{% endif %}
   </div>
   {% if doctor %}
-  <details class="panel card" id="edit-allergies" style="margin-top:10px">
-    <summary>Edit allergies <span class="src">PostgreSQL · IsAllergicTo</span></summary>
+  <details class="panel card quiet-summary" id="edit-allergies" style="margin-top:10px">
+    <summary>Edit allergies</summary>
+    <div class="card-head"><h2>Edit allergies</h2><span class="right"><span class="src">PostgreSQL · IsAllergicTo</span></span></div>
     {% if allergies %}
     <table class="tbl" style="margin-bottom:14px">
       <thead><tr><th>Ingredient</th><th>Severity</th><th>Reaction</th><th>Recorded</th><th></th></tr></thead>
@@ -132,10 +133,10 @@
       <div>
         <b>{{ e.title }}</b>{% if e.status not in ('active', 'completed') %} — {{ e.status }}{% if e.effectivePeriod.end %} {{ e.effectivePeriod.end|mon }}{% endif %}{% endif %}
         {% if e.details.notes %}<span class="muted"> · {{ e.details.notes }}</span>{% endif %}
-        {% if e.facts %}<div class="facts">{% for k, v in e.facts %}{{ k }}: {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</div>{% endif %}
+        {% if e.facts %}<div class="facts">{% for k, v in e.facts %}<span class="muted">{{ k }}</span> {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</div>{% endif %}
         <div class="faint small">{{ e.verificationStatus|replace('_', ' ') }}{% if e.recordedBy %} · recorded by {{ e.recordedBy.name }}{% endif %} · {{ e.recordedAt|d }}</div>
       </div>
-      <div>{% if doctor %}<form method="post" action="{{ url_for('patients.history_error', nric=p.nric, hid=e._id) }}">{{ csrf() }}<button class="linkbtn" title="Mark as entered in error">entered in error</button></form>{% endif %}</div>
+      <div>{% if doctor %}<form method="post" action="{{ url_for('patients.history_error', nric=p.nric, hid=e._id) }}">{{ csrf() }}<button class="linkbtn row-action" title="Mark this entry as entered in error">entered in error</button></form>{% endif %}</div>
     </div>
     {% else %}<p class="empty">No history recorded.</p>{% endfor %}
   </div>

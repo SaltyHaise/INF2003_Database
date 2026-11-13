@@ -65,7 +65,13 @@ def history_title(e):
     return e.get("code", {}).get("display", e["eventType"])
 
 
+FACT_LABELS = {"relation": "Relative", "ageAtOnset": "age at onset", "performedAt": "done at",
+               "packYears": "pack-years", "unitsPerWeek": "units a week", "quitDate": "quit",
+               "bodySite": "site", "outcome": "outcome", "severity": "severity"}
+
+
 def history_facts(e):
+    """Details of a history event as short readable phrases, e.g. ("Relative", "mother")."""
     skip = {"notes", "smokingStatus"}
     facts = []
     for k, v in (e.get("details") or {}).items():
@@ -73,7 +79,8 @@ def history_facts(e):
             continue
         if isinstance(v, datetime):
             v = v.strftime("%d %b %Y")
-        facts.append((k, v))
+        label = FACT_LABELS.get(k) or "".join(" " + c.lower() if c.isupper() else c for c in k)
+        facts.append((label, v))
     return facts
 
 

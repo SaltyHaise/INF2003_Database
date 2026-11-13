@@ -16,6 +16,31 @@
   {%- endif -%}
 {%- endmacro %}
 
+{# One alert as a compact card. Expects alerts passed through |group_alerts, so an
+   interaction pair appears once with all its effects; label wording is folded away. #}
+{% macro alert_card(a) -%}
+<div class="acard {{ 'avoid' if a.avoid or a.type == 'allergy' }}">
+  {%- if a.type == 'interaction' %}
+  <div class="acard-head"><span class="akind">Interaction</span>
+    <b>{{ a.ingredients|join(' + ') }}</b>
+    {%- if a.avoid %} <span class="chip ret">Label says avoid</span>{% endif %}</div>
+  <div class="effects">{% for e in a.effects %}<span class="echip">{{ e }}</span>{% endfor %}
+    {%- if a.withDrug %}<span class="awith">with {{ a.withDrug|lower }}</span>{% endif %}</div>
+  {%- if a.messages %}
+  <details class="label-text"><summary>Label wording ({{ a.messages|length }})</summary>
+    {% for m in a.messages %}<p>"{{ m }}"</p>{% endfor %}</details>
+  {%- endif %}
+  {%- else %}
+  <div class="acard-head"><span class="akind">{{ {'allergy': 'Allergy', 'duplicate': 'Duplicate', 'lab': 'Lab result', 'history': 'History'}.get(a.type, 'Alert') }}</span>
+    {%- if a.type == 'allergy' %}<b>{{ a.ingredient }}</b> <span>{{ a.reaction or 'reaction not recorded' }}, {{ a.severity }}</span>
+    {%- elif a.type == 'duplicate' %}<b>{{ a.ingredient }}</b> <span>already taking it in {{ a.withDrug|lower }}</span>
+    {%- elif a.type == 'lab' %}<b>{{ a.test|labname }} {{ a.value }} {{ a.unit }}</b> <span>{{ a.message }}{% if a.collectedAt %} · {{ a.collectedAt|d }}{% endif %}</span>
+    {%- elif a.type == 'history' %}<b>{{ a.condition }}</b> <span>{{ a.message }}{% if a.when %} · {{ a.when|mon }}{% endif %}</span>
+    {%- else %}<span>{{ a.message }}</span>{% endif %}</div>
+  {%- endif %}
+</div>
+{%- endmacro %}
+
 {% macro status_chip(s) -%}
   {%- if s == 'Approved' %}<span class="chip ok">Dispensed</span>
   {%- elif s == 'Rejected' %}<span class="chip ret">Returned</span>

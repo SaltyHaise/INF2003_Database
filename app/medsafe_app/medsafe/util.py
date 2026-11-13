@@ -96,9 +96,41 @@ def lab_name(code):
     return LAB_NAMES.get(code, (code or "").replace("_", " ").title())
 
 
+ALERT_ORDER = {"allergy": 0, "interaction": 1, "duplicate": 2, "lab": 3, "history": 4}
+
+
+def group_alerts(alerts):
+    """Merge interaction alerts for the same pair of ingredients into one entry.
+
+    The interaction data has one row per effect, so a single pair (e.g. clarithromycin +
+    simvastatin) can produce four alerts that differ only in the effect. Grouped, the pair
+    shows once with all its effects, "label says avoid" if any row says so, and the label
+    sentences kept together. Order: allergies, then interactions (avoid first), then the rest.
+    """
+    out, pairs = [], {}
+    for a in alerts or []:
+        if a.get("type") != "interaction":
+            out.append(dict(a))
+            continue
+        key = (tuple(a.get("ingredients") or []), a.get("withDrug"))
+        g = pairs.get(key)
+        if g is None:
+            g = pairs[key] = {"type": "interaction", "ingredients": list(key[0]), "withDrug": key[1],
+                              "effects": [], "messages": [], "avoid": False}
+            out.append(g)
+        eff = effect_label(a.get("effect"))
+        if eff and eff not in g["effects"]:
+            g["effects"].append(eff)
+        if a.get("message") and a["message"] not in g["messages"]:
+            g["messages"].append(a["message"])
+        g["avoid"] = g["avoid"] or a.get("severity") == "avoid"
+    return sorted(out, key=lambda a: (ALERT_ORDER.get(a["type"], 9), not a.get("avoid", False)))
+
+
 def init_app(app):
     app.jinja_env.filters.update(
         d=fmt_date, mon=fmt_month, hm=fmt_time, when=fmt_when, age=age, initials=initials,
         effect=effect_label, dose=dose_text, formroute=form_route, labname=lab_name,
+        group_alerts=group_alerts,
     )
     app.jinja_env.globals.update(today=today)

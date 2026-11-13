@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import alert_line, csrf with context %}
+{% from "_macros.html" import alert_card, csrf with context %}
 {% block title %}Review queue{% endblock %}
 {% block content %}
 <div class="split" style="grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr)">
@@ -20,7 +20,7 @@
           <td><b>{{ r.patient_name }}</b><div class="sub mono">{{ r.nric }}</div></td>
           <td>{{ r.genericname }}<div class="sub">{{ r|dose }}</div></td>
           <td class="small">{{ r.doctor_name }}</td>
-          <td>{% if r.alerts %}<span class="badge" title="{{ r.major }} major">{{ r.alerts|length }}</span>{% else %}<span class="small" style="color:var(--green-text)">None</span>{% endif %}</td>
+          <td>{% if r.alerts %}<span class="badge" title="{{ r.alerts|length }} alert rows, {{ r.major }} major">{{ r.alerts|group_alerts|length }}</span>{% else %}<span class="small" style="color:var(--green-text)">None</span>{% endif %}</td>
         </tr>
       {% else %}<tr><td colspan="5" class="empty" style="padding-left:22px">Nothing waiting. New prescriptions appear here.</td></tr>{% endfor %}
       </tbody>
@@ -41,8 +41,8 @@
 
     <h3 style="margin-bottom:8px">Alerts the doctor saw <span class="src" style="font-weight:400">MongoDB · prescription_audit</span></h3>
     <div class="stack" style="gap:8px">
-      {% for x in a.alerts or [] %}
-        <div class="alert-item">{{ alert_line(x) }}{% if x.type == 'interaction' and x.message %}<span class="sent">"{{ x.message }}"</span>{% endif %}</div>
+      {% for x in (a.alerts or [])|group_alerts %}
+        {{ alert_card(x) }}
       {% else %}<div class="alertbox none">No alerts were found when this was prescribed.</div>{% endfor %}
     </div>
 
