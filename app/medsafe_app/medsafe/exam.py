@@ -153,9 +153,7 @@ def parse(form):
             errors.append(f"{s['label']}: choose {s['normal'].lower()} or the abnormal findings, not both.")
         note = _text(form, f"exam_{key}_note")
         if not found and not note:
-            errors.append(f"{s['label']} is ticked as examined but has no finding. "
-                          f"Pick a finding (or \"{s['normal']}\") or untick it.")
-            continue
+            continue  # ticked but nothing recorded: treat as not examined
         entry = {"system": key, "findings": found}
         if note:
             entry["note"] = note
@@ -176,7 +174,8 @@ def compose_note(complaint, history, exam, pain_score, plan_note):
         if history.get("pain"):
             p = history["pain"]
             where = ", ".join(x for x in (p.get("site"), f"on {p['trigger']}" if p.get("trigger") else "") if x)
-            parts.append(f"Pain: {pain_score}/10, {where}.")
+            score = f"{pain_score}/10" if pain_score is not None else ""
+            parts.append("Pain: " + ", ".join(x for x in (score, where) if x) + ".")
     if exam:
         items = []
         for e in exam:

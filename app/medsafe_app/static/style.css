@@ -282,3 +282,15 @@ details.panel[open] > summary { margin-bottom: 12px; }
 .row-action { opacity: 0; transition: opacity .15s; }
 .hist-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
 @media (hover: none) { .row-action { opacity: 1; } }
+
+/* consult form: two required fields up top, the rest folded */
+.req { font-size: 11.5px; font-weight: 600; color: var(--red-text); margin-left: 4px; }
+details.opt { border: 1px solid var(--line); border-radius: 8px; padding: 0 14px; margin: 12px 0; background: #fbfbfc; }
+details.opt > summary { cursor: pointer; padding: 11px 0; font-weight: 600; font-size: 14px; }
+details.opt[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+details.opt[open] { padding-bottom: 14px; }
+.opt-label { font-size: 13px; font-weight: 600; color: var(--muted); margin: 14px 0 8px; }
+details.opt .opt-label:first-of-type { margin-top: 0; }
+.vitals-row { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+
+label.f .muted { font-weight: 400; }

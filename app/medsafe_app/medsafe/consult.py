@@ -64,8 +64,8 @@ def _render(nric, vform=None, errors=None, status=200):
 @bp.route("/consult/<nric>", methods=["POST"])
 @role_required("doctor")
 def save(nric):
-    """One visit, in the order of a consultation: triage, history (what the patient says),
-    examination (what the doctor finds), then assessment and plan."""
+    """Save a visit. Only the reason for visit and a diagnosis are required; vitals,
+    symptoms, examination and notes are optional and saved only when filled in."""
     records.patient(nric) or abort(404)
     f = request.form
     user = current_user()
@@ -75,30 +75,28 @@ def save(nric):
         v = f.get(name, "").strip()
         return cast(v) if v else None
 
-    # ---- triage ----------------------------------------------------------------------
+    # ---- reason for visit (required) and vitals (optional) -----------------------------
     complaint = " ".join(f.get("complaint", "").split())[:200]
-    if not complaint:
-        errors.append("Enter the chief complaint.")
+    if len(complaint) < 3:
+        errors.append("Enter the reason for the visit.")
     vitals = {}
     try:
         for key, field, cast in (("systolicBP", "sbp", int), ("diastolicBP", "dbp", int), ("heartRate", "hr", int),
-                                 ("respRate", "rr", int), ("temperatureC", "temp", float), ("spo2", "spo2", int),
-                                 ("weightKg", "weight", float)):
+                                 ("temperatureC", "temp", float), ("spo2", "spo2", int), ("weightKg", "weight", float)):
             v = num(field, cast)
             if v is not None:
                 vitals[key] = v
     except ValueError:
         errors.append("Vitals must be numbers (whole numbers except temperature and weight).")
     else:
-        missing = [n for n, k in (("systolic BP", "systolicBP"), ("diastolic BP", "diastolicBP"),
-                                  ("heart rate", "heartRate"), ("temperature", "temperatureC"), ("SpO2", "spo2"))
-                   if k not in vitals]
-        if missing:
-            errors.append("Enter " + ", ".join(missing) + ".")
+        if ("systolicBP" in vitals) != ("diastolicBP" in vitals):
+            errors.append("Enter both BP numbers, or leave both blank.")
     try:
-        pain_score = max(0, min(10, num("pain") or 0))
+        pain_score = num("pain")
+        if pain_score is not None and not 0 <= pain_score <= 10:
+            errors.append("Pain score must be from 0 to 10.")
     except ValueError:
-        pain_score = 0
+        pain_score = None
         errors.append("Pain score must be a whole number from 0 to 10.")
 
     # ---- history and examination -----------------------------------------------------
@@ -123,9 +121,6 @@ def save(nric):
         errors.append("Tick a diagnosis this visit addressed, or add a new one.")
 
     plan_note = f.get("note", "").strip()[:3000]
-    note = exam.compose_note(complaint, history, exam_list, pain_score, plan_note)
-    if len(note) < 10:
-        errors.append("Record what the patient told you, what you found, or a note of 10 or more characters.")
 
     if errors:
         return _render(nric, vform=f, errors=errors, status=400)
@@ -138,6 +133,11 @@ def save(nric):
                                   VALUES (%s, %s, %s, CURRENT_DATE) RETURNING DiagnosisID""",
                                (nric, user["id"], new_disease["diseaseid"])).fetchone()
             dx_ids.append(row["diagnosisid"])
+        # the searchable note: whatever was recorded, or at least the reason and diagnosis
+        dx_names = [existing[d]["disease"] for d in dx_ids if d in existing] + ([new_disease["name"]] if new_disease else [])
+        note = exam.compose_note(complaint, history, exam_list, pain_score, plan_note)
+        if not (history or exam_list or plan_note):
+            note = f"{complaint}.\nAssessment: {', '.join(dx_names)}."
         consultation = {"note": note[:4000], "diagnosisIds": dx_ids, "formVersion": exam.FORM_VERSION}
         if history:
             consultation["history"] = history
@@ -150,13 +150,16 @@ def save(nric):
         doc_row = query_one("SELECT Hospital FROM Doctor WHERE DoctorID = %s", (user["id"],))
         doc = {
             "nric": nric, "visitDate": now(),
-            "visitType": f.get("visit_type") if f.get("visit_type") in ("new problem", "follow-up") else "follow-up",
+            "visitType": "new problem" if new_disease else "follow-up",
             "doctor": {"doctorId": user["id"], "name": user["name"], "hospital": (doc_row or {}).get("hospital") or ""},
-            "triage": {"recordedAt": now(), "category": f.get("category") if f.get("category") in ("P1", "P2", "P3", "P4") else "P4",
-                       "chiefComplaint": complaint, "painScore": pain_score, "vitals": vitals},
+            "triage": {"recordedAt": now(), "chiefComplaint": complaint},
             "consultation": consultation,
             "prescriptionIds": [],
         }
+        if vitals:
+            doc["triage"]["vitals"] = vitals
+        if pain_score is not None:
+            doc["triage"]["painScore"] = pain_score
         try:
             eid = _insert_with_id("encounters", "E", doc)
         except WriteError as e:

@@ -82,14 +82,14 @@ db.createCollection("encounters", {
       doctor: { bsonType: "object", required: ["doctorId", "name"],
                 properties: { doctorId: { bsonType: INT }, name: { bsonType: "string" }, hospital: { bsonType: "string" } } },
       triage: {
-        bsonType: "object", required: ["recordedAt", "category", "chiefComplaint", "vitals"],
+        bsonType: "object", required: ["recordedAt", "chiefComplaint"],   // vitals, category, pain: optional
         properties: {
           recordedAt: { bsonType: "date" },
           category: { enum: ["P1", "P2", "P3", "P4"], description: "Singapore Patient Acuity Category" },
           chiefComplaint: { bsonType: "string", minLength: 3 },
           painScore: { bsonType: INT, minimum: 0, maximum: 10 },
           vitals: {
-            bsonType: "object", required: ["systolicBP", "diastolicBP", "heartRate", "temperatureC", "spo2"],
+            bsonType: "object",   // each vital optional, but checked for a sensible range when present
             properties: {
               systolicBP: { bsonType: INT, minimum: 50, maximum: 260 },
               diastolicBP: { bsonType: INT, minimum: 20, maximum: 160 },

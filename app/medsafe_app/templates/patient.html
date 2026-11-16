@@ -184,17 +184,25 @@
     <div class="visit">
       <div class="row" style="justify-content:space-between">
         <b>{{ v.visitDate|d }} · {{ v.triage.chiefComplaint }}</b>
-        <span class="muted small">{{ v.doctor.name }} · {{ v.visitType }} · <span class="chip {{ 'ret' if v.triage.category in ('P1', 'P2') else 'pend' if v.triage.category == 'P3' else 'today' }}">{{ v.triage.category }}</span></span>
+        <span class="muted small">{{ v.doctor.name }} · {{ v.visitType }}{% if v.triage.category %} · <span class="chip {{ 'ret' if v.triage.category in ('P1', 'P2') else 'pend' if v.triage.category == 'P3' else 'today' }}">{{ v.triage.category }}</span>{% endif %}</span>
       </div>
-      {% set vt = v.triage.vitals %}
-      <div class="vitals">BP {{ vt.systolicBP }}/{{ vt.diastolicBP }} · HR {{ vt.heartRate }}{% if vt.respRate %} · RR {{ vt.respRate }}{% endif %} · T {{ vt.temperatureC }}°C · SpO2 {{ vt.spo2 }}%{% if vt.weightKg %} · {{ vt.weightKg }} kg{% endif %} · pain {{ v.triage.painScore }}/10</div>
+      {% set vt = v.triage.vitals or {} %}
+      {% set vbits = [] %}
+      {% if vt.systolicBP %}{% set _ = vbits.append('BP ' ~ vt.systolicBP ~ '/' ~ vt.diastolicBP) %}{% endif %}
+      {% if vt.heartRate %}{% set _ = vbits.append('HR ' ~ vt.heartRate) %}{% endif %}
+      {% if vt.respRate %}{% set _ = vbits.append('RR ' ~ vt.respRate) %}{% endif %}
+      {% if vt.temperatureC %}{% set _ = vbits.append('T ' ~ vt.temperatureC ~ '°C') %}{% endif %}
+      {% if vt.spo2 %}{% set _ = vbits.append('SpO2 ' ~ vt.spo2 ~ '%') %}{% endif %}
+      {% if vt.weightKg %}{% set _ = vbits.append(vt.weightKg ~ ' kg') %}{% endif %}
+      {% if v.triage.painScore is not none %}{% set _ = vbits.append('pain ' ~ v.triage.painScore ~ '/10') %}{% endif %}
+      {% if vbits %}<div class="vitals">{{ vbits|join(' · ') }}</div>{% endif %}
       {% set c = v.consultation %}
       {% if c.formVersion %}
       <div class="consult">
         {% if c.history %}{% set hx = c.history %}
         <div class="cline"><span class="lbl">History</span>
           <span>{% for s in hx.symptoms %}<span class="chip find">{{ s|symptom }}</span> {% endfor %}{% if hx.duration %}<span class="small muted">for {{ hx.duration }}</span>{% endif %}
-            {% if hx.pain %}<div class="small">Pain {{ v.triage.painScore }}/10{% if hx.pain.site %}, {{ hx.pain.site }}{% endif %}{% if hx.pain.trigger %}, on {{ hx.pain.trigger }}{% endif %}</div>{% endif %}
+            {% if hx.pain %}<div class="small">Pain{% if v.triage.painScore is not none %} {{ v.triage.painScore }}/10{% endif %}{% if hx.pain.site %}, {{ hx.pain.site }}{% endif %}{% if hx.pain.trigger %}, on {{ hx.pain.trigger }}{% endif %}</div>{% endif %}
             {% if hx.notes %}<div class="small">{{ hx.notes }}</div>{% endif %}</span></div>
         {% endif %}
         {% for e in c.exam or [] %}

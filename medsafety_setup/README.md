@@ -56,13 +56,14 @@ PostgreSQL stores unquoted names in lowercase (`Patient` becomes `patient`). Wri
    It connects to `localhost:27017` and creates the `medsafety` database itself.
 3. The last thing it prints is the CHECK list. Every row should say **PASS** (23 rows). Re-run the check any time with `mongosh check_setup_mongo.js`.
 4. In Compass, connect to `mongodb://localhost:27017` and refresh to browse the `medsafety` collections. Compass's shell tab is fine for single queries: type `use medsafety` first.
-5. `medsafety_examples_mongo.js` has ready-made queries (doctor's patient view, patient history, lab trends, note search, pharmacist queue, analytics) plus the inserts and updates the backend will do. It doesn't change any data, so it's safe to run.
+5. **Set up before 16 Nov 2026?** The Consult form now saves visits without vitals. Either re-run `mongosh medsafety_setup_mongo.js` (resets the demo data), or keep your data and run `mongosh "mongodb://localhost:27017/medsafety" update_encounters_validator.js` once. Without one of these, MongoDB refuses visits saved without vitals.
+6. `medsafety_examples_mongo.js` has ready-made queries (doctor's patient view, patient history, lab trends, note search, pharmacist queue, analytics) plus the inserts and updates the backend will do. It doesn't change any data, so it's safe to run.
 
 ### The 5 collections
 
 | Collection | One document per | Holds | Links to PostgreSQL |
 |---|---|---|---|
-| `encounters` (249) | clinic visit | **triage** (category P1–P4, complaint, pain score, vitals) and the doctor's **consultation note** | `nric`, `consultation.diagnosisIds`, `prescriptionIds`, `doctor.doctorId` |
+| `encounters` (249) | clinic visit | **triage** (reason for visit; vitals, pain score and category P1–P4 optional) and the doctor's **consultation note** | `nric`, `consultation.diagnosisIds`, `prescriptionIds`, `doctor.doctorId` |
 | `patient_history` (202) | history fact | **smoking and alcohol**, past or outside **conditions**, **procedures**, **family history**, each with an effective period and who verified it. A change (e.g. quitting smoking) closes the old event (`superseded`) and adds a new one | `nric`, `recordedBy.id` (DoctorID), `encounterId` |
 | `lab_results` (458) | lab result | test, value, unit, normal range, H/L/N flag, date; INR results for warfarin patients also carry the 2.0–3.0 target range | `nric`, `orderedBy` (DoctorID) |
 | `prescription_audit` (182) | prescription | the **alerts** the doctor saw (interaction, allergy, lab), the doctor's reason for going ahead, and every **decision** in an `events` list (prescribed → approved / rejected) | `_id` = `PrescriptionID`, `nric`, `diagnosisId` |
