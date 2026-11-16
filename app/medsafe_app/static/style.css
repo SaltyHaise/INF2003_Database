@@ -294,3 +294,13 @@ details.opt .opt-label:first-of-type { margin-top: 0; }
 .vitals-row { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
 
 label.f .muted { font-weight: 400; }
+
+/* consult: medicines inside the visit */
+.meds .pickrow { cursor: pointer; }
+.meds .pickrow:hover td { background: #f7f9fc; }
+.meds .pickrow.sel td { background: var(--blue-soft); }
+.rx-panel { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; background: #fbfcfe; }
+.rx-panel .split { gap: 22px; }
+.save-row { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); align-items: center; }
+.advice-text { white-space: pre-line; }
+#visit-form > input[name=complaint] { width: 100%; }

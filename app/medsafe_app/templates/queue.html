@@ -49,6 +49,9 @@
     {% if sel.prescribed.reason %}
     <div class="reasonbox" style="margin-top:14px"><div class="muted small">Doctor's reason to proceed</div>{{ sel.prescribed.reason }}</div>
     {% endif %}
+    {% if a.advice %}
+    <div class="reasonbox" style="margin-top:10px"><div class="muted small">Advice the doctor gave the patient</div><div class="advice-text">{{ a.advice }}</div></div>
+    {% endif %}
     {% if not a %}<div class="flash error" style="margin-top:12px">No audit record found in MongoDB for this prescription.</div>{% endif %}
 
     <form id="review-form" method="post" action="{{ url_for('pharmacist.decide', rx_id=r.prescriptionid) }}" style="margin-top:16px">

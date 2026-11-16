@@ -204,7 +204,7 @@ db.createCollection("prescription_audit", {
         items: {
           bsonType: "object", required: ["type", "severity", "message"],
           properties: {
-            type: { enum: ["interaction", "allergy", "lab", "duplicate"] },
+            type: { enum: ["interaction", "allergy", "lab", "duplicate", "history"] },
             severity: { enum: ["avoid", "caution", "mild", "moderate", "severe", "major"] },
             message: { bsonType: "string" }
           }

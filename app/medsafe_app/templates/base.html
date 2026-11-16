@@ -19,8 +19,7 @@
     {% set ep = request.endpoint or '' %}
     <nav class="nav">
       {% if user.role == 'doctor' %}
-        <a href="{{ url_for('consult.start') }}" class="{{ 'on' if ep.startswith('consult.') }}">Consult</a>
-        <a href="{{ url_for('doctor.prescribe') }}" class="{{ 'on' if ep.startswith('doctor.') }}">Prescribe</a>
+        <a href="{{ url_for('consult.start') }}" class="{{ 'on' if ep.startswith('consult.') or ep.startswith('doctor.') }}">Consult</a>
         <a href="{{ url_for('patients.search') }}" class="{{ 'on' if ep.startswith('patients.') }}">Patient records</a>
       {% else %}
         <a href="{{ url_for('pharmacist.queue') }}" class="{{ 'on' if ep == 'pharmacist.queue' }}">Review queue</a>

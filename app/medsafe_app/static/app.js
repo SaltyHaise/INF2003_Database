@@ -117,6 +117,49 @@
       });
     }));
     show();
+
+    // Medicines follow the diagnosis: when the diagnosis or medicine changes, the page is
+    // re-drawn by the server with everything typed so far (it never saves on refresh).
+    const btn = document.getElementById("refresh-btn");
+    const refresh = (anchor) => {
+      btn.formAction = vf.getAttribute("action").split("#")[0] + anchor;
+      btn.click();
+    };
+    vf.querySelectorAll("[name=diagnosis_ids]").forEach(cb => cb.addEventListener("change", () => refresh("#medicines")));
+    const treatSel = vf.querySelector("select[name=treat]");
+    if (treatSel) treatSel.addEventListener("change", () => refresh("#medicines"));
+    const newdx = document.getElementById("newdx-box");
+    if (newdx) newdx.addEventListener("ac:chosen", () => refresh("#medicines"));
+    vf.querySelectorAll("[name=drug_id]").forEach(r => r.addEventListener("change", () => refresh(r.value ? "#rx" : "#medicines")));
+    vf.querySelectorAll("tr.pickrow").forEach(tr => tr.addEventListener("click", e => {
+      const r = tr.querySelector("[name=drug_id]");
+      if (r && !r.checked && !e.target.closest("a, input, button, details")) { r.checked = true; r.dispatchEvent(new Event("change")); }
+    }));
+    const search = document.getElementById("drugsearch-box");
+    if (search) search.addEventListener("ac:chosen", () => refresh("#rx"));
+
+    // Advice: add how to take the chosen medicine and its common side effects
+    const draft = document.getElementById("advice-draft");
+    if (draft) draft.addEventListener("click", () => {
+      const box = document.getElementById("v-advice");
+      const t = vf.querySelector("[name=template]:checked");
+      let how = "";
+      if (t && t.value === "custom") {
+        const amt = vf.querySelector("[name=dose_amount]").value, unit = vf.querySelector("[name=dose_unit]").value,
+              freq = vf.querySelector("[name=frequency]").value;
+        how = [amt && `${amt} ${unit}`, freq].filter(Boolean).join(", ");
+      } else if (t) {
+        const say = t.closest("label").querySelector("[data-say]");
+        how = say ? say.dataset.say : "";
+      }
+      const days = vf.querySelector("[name=days]");
+      let line = `${draft.dataset.drug[0].toUpperCase()}${draft.dataset.drug.slice(1)}: ${how || "as directed"}`;
+      if (days && days.value) line += ` for ${days.value} days`;
+      line += ".";
+      if (draft.dataset.se) line += ` Possible side effects: ${draft.dataset.se}.`;
+      box.value = box.value.trim() ? `${box.value.trim()}\n${line}` : line;
+      box.focus();
+    });
   }
 
   // History form: show the fields for the chosen kind

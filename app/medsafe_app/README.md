@@ -29,9 +29,9 @@ Open **http://127.0.0.1:5000**, pick a doctor or pharmacist, and you're in.
 
 | As | Do this | What you should see |
 |---|---|---|
-| Doctor (e.g. Dr Ganesh Iyer) | **Prescribe** → patient *Deepa d/o Raju*, condition *Osteoarthritis of knee* → Check medications | Ibuprofen and naproxen show 5 alerts each: warfarin interaction, high INR, low kidney function, past peptic ulcer |
-| Doctor | Pick ibuprofen and try to send without a reason | Refused. Add a reason and it is sent to the pharmacy |
-| Doctor | *Foo Ai Ling* → *Heart failure* → lisinopril | Spironolactone interaction plus a high-potassium lab alert |
+| Doctor (e.g. Dr Ganesh Iyer) | **Consult** → patient *Deepa d/o Raju* → reason "knee pain" → tick *Osteoarthritis of knee* | The medicines for it appear, each checked: ibuprofen and naproxen show warfarin interaction, high INR, low kidney function, past peptic ulcer |
+| Doctor | Pick ibuprofen and save without a reason | Refused, with what you typed kept. Add a reason and the visit is saved and the prescription sent to the pharmacy |
+| Doctor | *Foo Ai Ling* → *Heart failure* → lisinopril, then "Add how to take…" under Advice | Spironolactone interaction plus a high-potassium lab alert; the advice line drafts the dose and side effects |
 | Pharmacist (e.g. Chong Wai Kit) | **Review queue** | Prescriptions with the most serious alerts first; the alerts the doctor saw and the doctor's reason |
 | Pharmacist | Approve *Jonathan Tan Jia Le*'s carbamazepine without a note | Refused by a PostgreSQL trigger (severe allergy) |
 | Either | **Drug reference** → warfarin, **Insights** | Products, interactions, side effects; analytics from both databases |
@@ -40,8 +40,7 @@ Open **http://127.0.0.1:5000**, pick a doctor or pharmacist, and you're in.
 
 | Screen | Who | What it does |
 |---|---|---|
-| Consult | Doctor | The doctor's start page. Pick a patient; allergies, active medicines, diagnoses, labs and recent visits sit beside the visit form (triage, history, examination, assessment and plan). A new diagnosis can be added on the form. Save, or save and go straight to Prescribe |
-| Prescribe | Doctor | Choose patient and condition; see drugs for that condition each checked against the patient; choose a dose template or write one; give a reason if there are alerts; send to the pharmacy |
+| Consult | Doctor | The doctor's one screen for a visit. Allergies, medicines, conditions, labs and recent visits sit beside the visit, recorded in order: reason for visit (required); examination (optional, folded); diagnosis (required, tick or add new); medicines for that diagnosis, each checked against the patient, with dose, dates and a reason if there are alerts (or no medicine today); advice to the patient. One save stores the visit and sends any prescription to the pharmacy |
 | Patient records | Doctor (edit), pharmacist (view) | Details, allergies, active and past prescriptions, diagnoses, medical history, past visits (triage, history, examination, plan) with note search, lab results; Start consultation opens Consult |
 | Review queue | Pharmacist | Pending prescriptions, alerts first; three checks; approve and dispense, or return to the doctor with a note |
 | Dispensed | Pharmacist | Recently approved and returned prescriptions |
@@ -105,11 +104,11 @@ Sending a prescription or making a review decision writes **PostgreSQL first** (
 |---|---|---|---|---|
 | Patient (PG) | New patient | Records, search | Edit details | (not offered: patients have history) |
 | Allergy (PG) | Edit allergies | Record, safety check | Same ingredient again updates it | Remove |
-| Diagnosis (PG) | Add diagnosis, or new on prescribing | Record | | Remove if no prescriptions |
-| Prescription + template (PG) | Prescribe | Everywhere | Review decision | |
+| Diagnosis (PG) | Add diagnosis, or new on Consult | Record | | Remove if no prescriptions |
+| Prescription + template (PG) | Consult | Everywhere | Review decision | |
 | History event (Mongo) | Add history event | Record | Supersede on status change | Mark entered in error |
-| Visit (Mongo) | Add visit | Record, note search | Prescription linked on prescribing | |
-| Audit (Mongo) | On prescribing | Review queue, Insights | `$push` decision | |
+| Visit (Mongo) | Consult | Record, note search | | |
+| Audit (Mongo) | Consult, when a medicine is sent | Review queue (with the doctor's advice), Insights | `$push` decision | |
 
 ## Project layout
 
@@ -120,7 +119,9 @@ medsafe/db.py              PostgreSQL + MongoDB connections, runs the startup SQ
 medsafe/auth.py            sign-in and role checks
 medsafe/safety.py          the safety check
 medsafe/records.py         reading a patient's record from both databases
-medsafe/doctor.py          Prescribe
+medsafe/consult.py         Consult: the visit and its prescription, saved together
+medsafe/doctor.py          prescribing logic used by Consult (/prescribe redirects there)
+medsafe/exam.py            symptom and examination vocabulary
 medsafe/patients.py        Patient records and their create/update actions
 medsafe/pharmacist.py      Review queue, Dispensed
 medsafe/reference.py       Drug reference

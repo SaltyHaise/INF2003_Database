@@ -15,7 +15,6 @@
   <div class="row" style="margin-left:auto">
     <a class="btn" href="{{ url_for('patients.edit', nric=p.nric) }}">Edit details</a>
     <a class="btn" href="#diagnoses" onclick="document.getElementById('add-dx').open = true">Add diagnosis</a>
-    <a class="btn" href="{{ url_for('doctor.prescribe', nric=p.nric) }}">New prescription</a>
     <a class="btn primary" href="{{ url_for('consult.visit', nric=p.nric) }}">Start consultation</a>
   </div>
   {% endif %}
@@ -209,7 +208,8 @@
         <div class="cline"><span class="lbl">{{ e.system|system }}</span>
           <span>{% for x in e.findings %}<span class="chip {{ 'ok' if x == 'normal' else 'find' }}">{{ e.system|finding(x) }}</span> {% endfor %}{% if e.note %}<span class="small">{{ e.note }}</span>{% endif %}</span></div>
         {% endfor %}
-        {% if c.plan %}<div class="cline"><span class="lbl">Plan</span><span class="note" style="margin:0">{{ c.plan }}</span></div>{% endif %}
+        {% if c.plan %}<div class="cline"><span class="lbl">Findings</span><span class="note" style="margin:0">{{ c.plan }}</span></div>{% endif %}
+        {% if c.advice %}<div class="cline"><span class="lbl">Advice</span><span class="note advice-text" style="margin:0">{{ c.advice }}</span></div>{% endif %}
       </div>
       {% else %}
       <details><summary class="small" style="cursor:pointer">Consultation note</summary><div class="note">{{ c.note }}</div></details>

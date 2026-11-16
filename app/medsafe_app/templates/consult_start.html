@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% from "_macros.html" import status_chip %}
 {% block title %}Consult{% endblock %}
 {% block content %}
 <section class="narrow">
   <h1>Start a consultation</h1>
-  <p class="muted" style="margin:6px 0 14px">Find the patient. Their allergies, medicines and recent visits open beside the visit form.</p>
+  <p class="muted" style="margin:6px 0 14px">Find the patient. You'll record the visit, choose a diagnosis and, if needed, prescribe from the same page, with their allergies and medicines beside you.</p>
   <div class="card">
     <div class="field ac" data-src="{{ url_for('api.patients') }}" data-go="{{ url_for('consult.visit', nric='__ID__')|replace('__ID__', '{id}') }}" style="margin:0">
       <label class="f" for="consult-q">Patient</label>
@@ -30,4 +31,26 @@
     </tbody>
   </table></div>
 </section>
+
+{% if rx_recent %}
+<section class="card">
+  <div class="card-head"><h2>Your recent prescriptions</h2><span class="right"><span class="src">PostgreSQL · v_prescription_detail</span></span></div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Rx</th><th>Patient</th><th>Medicine</th><th>For</th><th>Start</th><th>Status</th><th>Pharmacist's note</th></tr></thead>
+    <tbody>
+    {% for r in rx_recent %}
+      <tr class="click" data-href="{{ url_for('patients.record', nric=r.nric) }}">
+        <td class="num">{{ r.prescriptionid }}</td>
+        <td>{{ r.patient_name }}<div class="sub mono">{{ r.nric }}</div></td>
+        <td><b>{{ r.genericname }}</b><div class="sub">{{ r|dose }}</div></td>
+        <td class="small">{{ r.disease }}</td>
+        <td class="nowrap">{{ r.prescriptionstart|d }}</td>
+        <td>{{ status_chip(r.reviewstatus) }}</td>
+        <td class="small">{{ r.reviewnotes or '' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
 {% endblock %}
