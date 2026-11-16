@@ -1,0 +1,405 @@
+From 9e97b9461eb36059e67476a4767915644c327e03 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 16 Nov 2026 16:48:48 +0800
+Subject: [PATCH] Consult: only reason for visit and diagnosis required
+
+The visit form asked for too much. Now:
+- Required: reason for visit, and a diagnosis (tick existing or add new).
+- Optional notes box; vitals, and symptoms and examination, folded away
+  and saved only when filled in. A body part ticked but left empty is
+  treated as not examined instead of an error.
+- Triage priority and visit type removed; visit type is "new problem"
+  when a new diagnosis is added, otherwise "follow-up".
+- A visit with no notes gets "<reason>. Assessment: <diagnoses>." as its
+  searchable note.
+- Record page shows only the vitals that were recorded.
+
+MongoDB: the encounters validator now requires only recordedAt and
+chiefComplaint in triage (vitals still range-checked when present).
+medsafety_setup_mongo.js is updated; update_encounters_validator.js
+applies the same change to an existing database without resetting it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0179Vc7ez9xRGx1SnzaUMPWZ
+---
+ app/medsafe_app/medsafe/consult.py            | 43 ++++++------
+ app/medsafe_app/medsafe/exam.py               |  7 +-
+ app/medsafe_app/static/app.js                 | 17 +----
+ app/medsafe_app/static/style.css              | 12 ++++
+ app/medsafe_app/templates/consult.html        | 66 ++++++++++---------
+ app/medsafe_app/templates/patient.html        | 16 +++--
+ medsafety_setup/README.md                     |  5 +-
+ .../mongodb/medsafety_setup_mongo.js          |  4 +-
+ .../mongodb/update_encounters_validator.js    | 14 ++++
+ 9 files changed, 108 insertions(+), 76 deletions(-)
+ create mode 100644 medsafety_setup/mongodb/update_encounters_validator.js
+
+diff --git a/app/medsafe_app/medsafe/consult.py b/app/medsafe_app/medsafe/consult.py
+index 3e881b3..4d2b0ae 100644
+--- a/app/medsafe_app/medsafe/consult.py
++++ b/app/medsafe_app/medsafe/consult.py
+@@ -64,8 +64,8 @@ def _render(nric, vform=None, errors=None, status=200):
+ @bp.route("/consult/<nric>", methods=["POST"])
+ @role_required("doctor")
+ def save(nric):
+-    """One visit, in the order of a consultation: triage, history (what the patient says),
+-    examination (what the doctor finds), then assessment and plan."""
++    """Save a visit. Only the reason for visit and a diagnosis are required; vitals,
++    symptoms, examination and notes are optional and saved only when filled in."""
+     records.patient(nric) or abort(404)
+     f = request.form
+     user = current_user()
+@@ -75,30 +75,28 @@ def save(nric):
+         v = f.get(name, "").strip()
+         return cast(v) if v else None
+ 
+-    # ---- triage ----------------------------------------------------------------------
++    # ---- reason for visit (required) and vitals (optional) -----------------------------
+     complaint = " ".join(f.get("complaint", "").split())[:200]
+-    if not complaint:
+-        errors.append("Enter the chief complaint.")
++    if len(complaint) < 3:
++        errors.append("Enter the reason for the visit.")
+     vitals = {}
+     try:
+         for key, field, cast in (("systolicBP", "sbp", int), ("diastolicBP", "dbp", int), ("heartRate", "hr", int),
+-                                 ("respRate", "rr", int), ("temperatureC", "temp", float), ("spo2", "spo2", int),
+-                                 ("weightKg", "weight", float)):
++                                 ("temperatureC", "temp", float), ("spo2", "spo2", int), ("weightKg", "weight", float)):
+             v = num(field, cast)
+             if v is not None:
+                 vitals[key] = v
+     except ValueError:
+         errors.append("Vitals must be numbers (whole numbers except temperature and weight).")
+     else:
+-        missing = [n for n, k in (("systolic BP", "systolicBP"), ("diastolic BP", "diastolicBP"),
+-                                  ("heart rate", "heartRate"), ("temperature", "temperatureC"), ("SpO2", "spo2"))
+-                   if k not in vitals]
+-        if missing:
+-            errors.append("Enter " + ", ".join(missing) + ".")
++        if ("systolicBP" in vitals) != ("diastolicBP" in vitals):
++            errors.append("Enter both BP numbers, or leave both blank.")
+     try:
+-        pain_score = max(0, min(10, num("pain") or 0))
++        pain_score = num("pain")
++        if pain_score is not None and not 0 <= pain_score <= 10:
++            errors.append("Pain score must be from 0 to 10.")
+     except ValueError:
+-        pain_score = 0
++        pain_score = None
+         errors.append("Pain score must be a whole number from 0 to 10.")
+ 
+     # ---- history and examination -----------------------------------------------------
+@@ -123,9 +121,6 @@ def save(nric):
+         errors.append("Tick a diagnosis this visit addressed, or add a new one.")
+ 
+     plan_note = f.get("note", "").strip()[:3000]
+-    note = exam.compose_note(complaint, history, exam_list, pain_score, plan_note)
+-    if len(note) < 10:
+-        errors.append("Record what the patient told you, what you found, or a note of 10 or more characters.")
+ 
+     if errors:
+         return _render(nric, vform=f, errors=errors, status=400)
+@@ -138,6 +133,11 @@ def save(nric):
+                                   VALUES (%s, %s, %s, CURRENT_DATE) RETURNING DiagnosisID""",
+                                (nric, user["id"], new_disease["diseaseid"])).fetchone()
+             dx_ids.append(row["diagnosisid"])
++        # the searchable note: whatever was recorded, or at least the reason and diagnosis
++        dx_names = [existing[d]["disease"] for d in dx_ids if d in existing] + ([new_disease["name"]] if new_disease else [])
++        note = exam.compose_note(complaint, history, exam_list, pain_score, plan_note)
++        if not (history or exam_list or plan_note):
++            note = f"{complaint}.\nAssessment: {', '.join(dx_names)}."
+         consultation = {"note": note[:4000], "diagnosisIds": dx_ids, "formVersion": exam.FORM_VERSION}
+         if history:
+             consultation["history"] = history
+@@ -150,13 +150,16 @@ def save(nric):
+         doc_row = query_one("SELECT Hospital FROM Doctor WHERE DoctorID = %s", (user["id"],))
+         doc = {
+             "nric": nric, "visitDate": now(),
+-            "visitType": f.get("visit_type") if f.get("visit_type") in ("new problem", "follow-up") else "follow-up",
++            "visitType": "new problem" if new_disease else "follow-up",
+             "doctor": {"doctorId": user["id"], "name": user["name"], "hospital": (doc_row or {}).get("hospital") or ""},
+-            "triage": {"recordedAt": now(), "category": f.get("category") if f.get("category") in ("P1", "P2", "P3", "P4") else "P4",
+-                       "chiefComplaint": complaint, "painScore": pain_score, "vitals": vitals},
++            "triage": {"recordedAt": now(), "chiefComplaint": complaint},
+             "consultation": consultation,
+             "prescriptionIds": [],
+         }
++        if vitals:
++            doc["triage"]["vitals"] = vitals
++        if pain_score is not None:
++            doc["triage"]["painScore"] = pain_score
+         try:
+             eid = _insert_with_id("encounters", "E", doc)
+         except WriteError as e:
+diff --git a/app/medsafe_app/medsafe/exam.py b/app/medsafe_app/medsafe/exam.py
+index d30c888..c9888bf 100644
+--- a/app/medsafe_app/medsafe/exam.py
++++ b/app/medsafe_app/medsafe/exam.py
+@@ -153,9 +153,7 @@ def parse(form):
+             errors.append(f"{s['label']}: choose {s['normal'].lower()} or the abnormal findings, not both.")
+         note = _text(form, f"exam_{key}_note")
+         if not found and not note:
+-            errors.append(f"{s['label']} is ticked as examined but has no finding. "
+-                          f"Pick a finding (or \"{s['normal']}\") or untick it.")
+-            continue
++            continue  # ticked but nothing recorded: treat as not examined
+         entry = {"system": key, "findings": found}
+         if note:
+             entry["note"] = note
+@@ -176,7 +174,8 @@ def compose_note(complaint, history, exam, pain_score, plan_note):
+         if history.get("pain"):
+             p = history["pain"]
+             where = ", ".join(x for x in (p.get("site"), f"on {p['trigger']}" if p.get("trigger") else "") if x)
+-            parts.append(f"Pain: {pain_score}/10, {where}.")
++            score = f"{pain_score}/10" if pain_score is not None else ""
++            parts.append("Pain: " + ", ".join(x for x in (score, where) if x) + ".")
+     if exam:
+         items = []
+         for e in exam:
+diff --git a/app/medsafe_app/static/app.js b/app/medsafe_app/static/app.js
+index 61438ad..ccc5ed7 100644
+--- a/app/medsafe_app/static/app.js
++++ b/app/medsafe_app/static/app.js
+@@ -101,24 +101,13 @@
+     boxes.forEach(b => b.addEventListener("change", sync)); sync();
+   }
+ 
+-  // Visit form: show findings only for the parts examined; suggest parts from the
+-  // complaint until the doctor ticks one themselves; "normal" and abnormal findings
+-  // for the same part exclude each other.
++  // Visit form: show findings only for the body parts ticked; "normal" and abnormal
++  // findings for the same part exclude each other.
+   const vf = document.getElementById("visit-form");
+   if (vf) {
+     const parts = [...vf.querySelectorAll("[name=exam_systems]")];
+     const show = () => parts.forEach(t => { vf.querySelector(`[data-system="${t.value}"]`).hidden = !t.checked; });
+-    let chosenByDoctor = parts.some(t => t.checked);
+-    parts.forEach(t => t.addEventListener("change", () => { chosenByDoctor = true; show(); }));
+-    const cc = vf.querySelector("[name=complaint]");
+-    cc.addEventListener("input", () => {
+-      if (chosenByDoctor) return;
+-      const q = cc.value.toLowerCase();
+-      parts.forEach(t => {
+-        t.checked = q.length > 2 && (t.value === "general" || t.dataset.keywords.split("|").some(k => k && q.includes(k)));
+-      });
+-      show();
+-    });
++    parts.forEach(t => t.addEventListener("change", show));
+     vf.querySelectorAll(".exam-sys").forEach(box => box.addEventListener("change", e => {
+       const cb = e.target;
+       if (cb.type !== "checkbox" || !cb.checked) return;
+diff --git a/app/medsafe_app/static/style.css b/app/medsafe_app/static/style.css
+index 163f881..0c7cebc 100644
+--- a/app/medsafe_app/static/style.css
++++ b/app/medsafe_app/static/style.css
+@@ -282,3 +282,15 @@ details.panel[open] > summary { margin-bottom: 12px; }
+ .row-action { opacity: 0; transition: opacity .15s; }
+ .hist-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
+ @media (hover: none) { .row-action { opacity: 1; } }
++
++/* consult form: two required fields up top, the rest folded */
++.req { font-size: 11.5px; font-weight: 600; color: var(--red-text); margin-left: 4px; }
++details.opt { border: 1px solid var(--line); border-radius: 8px; padding: 0 14px; margin: 12px 0; background: #fbfbfc; }
++details.opt > summary { cursor: pointer; padding: 11px 0; font-weight: 600; font-size: 14px; }
++details.opt[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 12px; }
++details.opt[open] { padding-bottom: 14px; }
++.opt-label { font-size: 13px; font-weight: 600; color: var(--muted); margin: 14px 0 8px; }
++details.opt .opt-label:first-of-type { margin-top: 0; }
++.vitals-row { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
++
++label.f .muted { font-weight: 400; }
+diff --git a/app/medsafe_app/templates/consult.html b/app/medsafe_app/templates/consult.html
+index d09cac3..e83d035 100644
+--- a/app/medsafe_app/templates/consult.html
++++ b/app/medsafe_app/templates/consult.html
+@@ -49,34 +49,50 @@
+     {{ csrf() }}
+     {% if visit_errors %}<div class="flash error" role="alert" style="margin-bottom:10px"><b>The visit wasn't saved.</b><ul style="margin:6px 0 0 18px; padding:0">{% for e in visit_errors %}<li>{{ e }}</li>{% endfor %}</ul></div>{% endif %}
+ 
+-    <h3 class="vstep">1. Triage</h3>
+-    <div class="fields">
+-      <div style="grid-column: span 2"><label class="f" for="v-cc">Chief complaint</label><input type="text" id="v-cc" name="complaint" maxlength="200" required value="{{ vf.get('complaint', '') }}" placeholder="Fever and cough for 4 days"></div>
+-      <div><label class="f" for="v-cat">Triage</label><select id="v-cat" name="category">{% for c in ['P4', 'P3', 'P2', 'P1'] %}<option {{ 'selected' if vf.get('category') == c }}>{{ c }}</option>{% endfor %}</select></div>
+-      <div><label class="f" for="v-type">Visit</label><select id="v-type" name="visit_type">{% for t in ['follow-up', 'new problem'] %}<option {{ 'selected' if vf.get('visit_type') == t }}>{{ t }}</option>{% endfor %}</select></div>
+-      <div><label class="f" for="v-sbp">Systolic BP</label><input type="number" id="v-sbp" name="sbp" min="50" max="260" required value="{{ vf.get('sbp', '') }}"></div>
+-      <div><label class="f" for="v-dbp">Diastolic BP</label><input type="number" id="v-dbp" name="dbp" min="20" max="160" required value="{{ vf.get('dbp', '') }}"></div>
+-      <div><label class="f" for="v-hr">Heart rate</label><input type="number" id="v-hr" name="hr" min="20" max="250" required value="{{ vf.get('hr', '') }}"></div>
+-      <div><label class="f" for="v-rr">Resp. rate</label><input type="number" id="v-rr" name="rr" min="4" max="60" value="{{ vf.get('rr', '') }}"></div>
+-      <div><label class="f" for="v-t">Temp °C</label><input type="number" id="v-t" name="temp" min="30" max="44" step="0.1" required value="{{ vf.get('temp', '') }}"></div>
+-      <div><label class="f" for="v-spo2">SpO2 %</label><input type="number" id="v-spo2" name="spo2" min="50" max="100" required value="{{ vf.get('spo2', '') }}"></div>
+-      <div><label class="f" for="v-wt">Weight kg</label><input type="number" id="v-wt" name="weight" min="1" max="400" step="0.1" value="{{ vf.get('weight', '') }}"></div>
+-      <div><label class="f" for="v-pain">Pain 0–10</label><input type="number" id="v-pain" name="pain" min="0" max="10" value="{{ vf.get('pain', '0') }}"></div>
+-    </div>
++    {% set dx_picked = vf.getlist('diagnosis_ids') %}
++    <div class="field"><label class="f" for="v-cc">Reason for visit <span class="req">required</span></label>
++      <input type="text" id="v-cc" name="complaint" maxlength="200" required value="{{ vf.get('complaint', '') }}" placeholder="Fever and cough for 4 days"></div>
++
++    <div class="field"><label class="f">Diagnosis <span class="req">required</span> <span class="muted small">tick one or more, or add a new one</span></label>
++      <div class="picks">{% for g in dxs %}<label class="pick"><input type="checkbox" name="diagnosis_ids" value="{{ g.diagnosisid }}" {{ 'checked' if g.diagnosisid|string in dx_picked }}><span>{{ g.disease }}</span></label>{% endfor %}</div>
++      <div class="ac" data-src="{{ url_for('api.diseases') }}" style="margin-top:8px">
++        <input type="text" id="v-newdx" name="new_disease_q" aria-label="New diagnosis" placeholder="New diagnosis: search, e.g. pneumonia" value="{{ vf.get('new_disease_q', '') }}">
++        <input type="hidden" name="new_disease_id" value="{{ vf.get('new_disease_id', '') }}">
++      </div></div>
+ 
+-    <h3 class="vstep">2. History <span class="muted small">what the patient tells you</span></h3>
++    <div class="field"><label class="f" for="v-note">Notes <span class="muted small">optional: findings, plan, advice</span></label>
++      <textarea id="v-note" name="note" rows="3" maxlength="3000" placeholder="Crackles right base. Antibiotics, review in 3 days.">{{ vf.get('note', '') }}</textarea></div>
++
++    {% set has_vitals = namespace(v=false) %}{% for k in ['sbp', 'dbp', 'hr', 'temp', 'spo2', 'weight'] %}{% if vf.get(k) %}{% set has_vitals.v = true %}{% endif %}{% endfor %}
++    <details class="opt" {{ 'open' if has_vitals.v }}>
++      <summary>Vitals <span class="muted small">optional</span></summary>
++      <div class="fields vitals-row">
++        <div><label class="f" for="v-sbp">BP systolic</label><input type="number" id="v-sbp" name="sbp" min="50" max="260" value="{{ vf.get('sbp', '') }}"></div>
++        <div><label class="f" for="v-dbp">BP diastolic</label><input type="number" id="v-dbp" name="dbp" min="20" max="160" value="{{ vf.get('dbp', '') }}"></div>
++        <div><label class="f" for="v-hr">Heart rate</label><input type="number" id="v-hr" name="hr" min="20" max="250" value="{{ vf.get('hr', '') }}"></div>
++        <div><label class="f" for="v-t">Temp °C</label><input type="number" id="v-t" name="temp" min="30" max="44" step="0.1" value="{{ vf.get('temp', '') }}"></div>
++        <div><label class="f" for="v-spo2">SpO2 %</label><input type="number" id="v-spo2" name="spo2" min="50" max="100" value="{{ vf.get('spo2', '') }}"></div>
++        <div><label class="f" for="v-wt">Weight kg</label><input type="number" id="v-wt" name="weight" min="1" max="400" step="0.1" value="{{ vf.get('weight', '') }}"></div>
++      </div>
++    </details>
++
++    {% set has_opt = namespace(v=false) %}{% for k in ['symptoms', 'exam_systems', 'pain', 'hx_duration', 'hx_notes', 'pain_site', 'pain_trigger'] %}{% if vf.getlist(k)|select|list %}{% set has_opt.v = true %}{% endif %}{% endfor %}
++    <details class="opt" {{ 'open' if has_opt.v }}>
++      <summary>Symptoms and examination <span class="muted small">optional</span></summary>
++      <p class="opt-label">What the patient reports</p>
+     {% set picked = vf.getlist('symptoms') %}
+     <div class="picks" role="group" aria-label="Symptoms">
+       {% for code, label in EXAM_SYMPTOMS %}<label class="pick"><input type="checkbox" name="symptoms" value="{{ code }}" {{ 'checked' if code in picked }}><span>{{ label }}</span></label>{% endfor %}
+     </div>
+     <div class="fields" style="margin-top:10px">
++      <div><label class="f" for="v-pain">Pain 0–10</label><input type="number" id="v-pain" name="pain" min="0" max="10" value="{{ vf.get('pain', '') }}"></div>
+       <div><label class="f" for="v-dur">How long</label><input type="text" id="v-dur" name="hx_duration" maxlength="40" value="{{ vf.get('hx_duration', '') }}" placeholder="4 days"></div>
+       <div><label class="f" for="v-psite">Pain site</label><input type="text" id="v-psite" name="pain_site" maxlength="80" value="{{ vf.get('pain_site', '') }}" placeholder="right chest"></div>
+       <div><label class="f" for="v-ptrig">Worse with</label><input type="text" id="v-ptrig" name="pain_trigger" maxlength="80" value="{{ vf.get('pain_trigger', '') }}" placeholder="coughing"></div>
+     </div>
+-    <div class="field" style="margin-top:10px"><label class="f" for="v-hx">Other answers</label><textarea id="v-hx" name="hx_notes" maxlength="1000" placeholder="Yellow sputum. Took paracetamol at home. Grandson had flu last week.">{{ vf.get('hx_notes', '') }}</textarea></div>
++    <div class="field" style="margin-top:10px"><label class="f" for="v-hx">Other answers</label><textarea id="v-hx" name="hx_notes" rows="2" maxlength="1000" placeholder="Yellow sputum. Took paracetamol at home. Grandson had flu last week.">{{ vf.get('hx_notes', '') }}</textarea></div>
+ 
+-    <h3 class="vstep">3. Examination <span class="muted small">tick each part you examined</span></h3>
++      <p class="opt-label">What you examined <span class="muted small">tick a body part to record findings</span></p>
+     {% set systems_on = vf.getlist('exam_systems') %}
+     <div class="picks" role="group" aria-label="Parts examined">
+       {% for s in EXAM_SYSTEMS %}<label class="pick sys"><input type="checkbox" name="exam_systems" value="{{ s.key }}" data-keywords="{{ s.keywords|join('|') }}" {{ 'checked' if s.key in systems_on }}><span>{{ s.label }}</span></label>{% endfor %}
+@@ -96,19 +112,9 @@
+       {% endfor %}
+     </div>
+ 
+-    <h3 class="vstep">4. Assessment and plan</h3>
+-    {% set dx_picked = vf.getlist('diagnosis_ids') %}
+-    <div class="field"><label class="f">Diagnoses this visit addressed</label>
+-      <div class="picks">{% for g in dxs %}<label class="pick"><input type="checkbox" name="diagnosis_ids" value="{{ g.diagnosisid }}" {{ 'checked' if g.diagnosisid|string in dx_picked }}><span>{{ g.disease }} · {{ g.dateofdiagnosis|mon }}</span></label>{% else %}<span class="muted small">No diagnoses yet. Add one below.</span>{% endfor %}</div></div>
+-    <div class="field ac" data-src="{{ url_for('api.diseases') }}">
+-      <label class="f" for="v-newdx">New diagnosis <span class="muted small">optional</span></label>
+-      <input type="text" id="v-newdx" name="new_disease_q" placeholder="Pneumonia, hypertension" value="{{ vf.get('new_disease_q', '') }}">
+-      <input type="hidden" name="new_disease_id" value="{{ vf.get('new_disease_id', '') }}">
+-      <div class="hint">Saved to the patient's diagnoses together with the visit.</div>
+-    </div>
+-    <div class="field"><label class="f" for="v-note">Plan and other notes</label><textarea id="v-note" name="note" maxlength="3000" placeholder="Start antibiotics, review in 3 days, return if breathless.">{{ vf.get('note', '') }}</textarea>
+-      <div class="hint">History and examination are added to the saved note automatically, so note search finds them.</div></div>
+-    <div class="row" style="align-items:center"><label class="small" for="v-fu">Follow up in (days)</label><input type="number" id="v-fu" name="follow_up" min="1" max="365" style="width:100px" value="{{ vf.get('follow_up', '') }}">
++    </details>
++
++    <div class="row" style="align-items:center"><label class="small" for="v-fu">Follow up in</label><input type="number" id="v-fu" name="follow_up" min="1" max="365" style="width:80px" value="{{ vf.get('follow_up', '') }}"><span class="small muted">days</span>
+       <span style="margin-left:auto" class="row">
+         <button class="btn" name="next" value="record">Save visit</button>
+         <button class="btn primary" name="next" value="prescribe">Save and prescribe</button>
+diff --git a/app/medsafe_app/templates/patient.html b/app/medsafe_app/templates/patient.html
+index 46903f9..41d0a5a 100644
+--- a/app/medsafe_app/templates/patient.html
++++ b/app/medsafe_app/templates/patient.html
+@@ -184,17 +184,25 @@
+     <div class="visit">
+       <div class="row" style="justify-content:space-between">
+         <b>{{ v.visitDate|d }} · {{ v.triage.chiefComplaint }}</b>
+-        <span class="muted small">{{ v.doctor.name }} · {{ v.visitType }} · <span class="chip {{ 'ret' if v.triage.category in ('P1', 'P2') else 'pend' if v.triage.category == 'P3' else 'today' }}">{{ v.triage.category }}</span></span>
++        <span class="muted small">{{ v.doctor.name }} · {{ v.visitType }}{% if v.triage.category %} · <span class="chip {{ 'ret' if v.triage.category in ('P1', 'P2') else 'pend' if v.triage.category == 'P3' else 'today' }}">{{ v.triage.category }}</span>{% endif %}</span>
+       </div>
+-      {% set vt = v.triage.vitals %}
+-      <div class="vitals">BP {{ vt.systolicBP }}/{{ vt.diastolicBP }} · HR {{ vt.heartRate }}{% if vt.respRate %} · RR {{ vt.respRate }}{% endif %} · T {{ vt.temperatureC }}°C · SpO2 {{ vt.spo2 }}%{% if vt.weightKg %} · {{ vt.weightKg }} kg{% endif %} · pain {{ v.triage.painScore }}/10</div>
++      {% set vt = v.triage.vitals or {} %}
++      {% set vbits = [] %}
++      {% if vt.systolicBP %}{% set _ = vbits.append('BP ' ~ vt.systolicBP ~ '/' ~ vt.diastolicBP) %}{% endif %}
++      {% if vt.heartRate %}{% set _ = vbits.append('HR ' ~ vt.heartRate) %}{% endif %}
++      {% if vt.respRate %}{% set _ = vbits.append('RR ' ~ vt.respRate) %}{% endif %}
++      {% if vt.temperatureC %}{% set _ = vbits.append('T ' ~ vt.temperatureC ~ '°C') %}{% endif %}
++      {% if vt.spo2 %}{% set _ = vbits.append('SpO2 ' ~ vt.spo2 ~ '%') %}{% endif %}
++      {% if vt.weightKg %}{% set _ = vbits.append(vt.weightKg ~ ' kg') %}{% endif %}
++      {% if v.triage.painScore is not none %}{% set _ = vbits.append('pain ' ~ v.triage.painScore ~ '/10') %}{% endif %}
++      {% if vbits %}<div class="vitals">{{ vbits|join(' · ') }}</div>{% endif %}
+       {% set c = v.consultation %}
+       {% if c.formVersion %}
+       <div class="consult">
+         {% if c.history %}{% set hx = c.history %}
+         <div class="cline"><span class="lbl">History</span>
+           <span>{% for s in hx.symptoms %}<span class="chip find">{{ s|symptom }}</span> {% endfor %}{% if hx.duration %}<span class="small muted">for {{ hx.duration }}</span>{% endif %}
+-            {% if hx.pain %}<div class="small">Pain {{ v.triage.painScore }}/10{% if hx.pain.site %}, {{ hx.pain.site }}{% endif %}{% if hx.pain.trigger %}, on {{ hx.pain.trigger }}{% endif %}</div>{% endif %}
++            {% if hx.pain %}<div class="small">Pain{% if v.triage.painScore is not none %} {{ v.triage.painScore }}/10{% endif %}{% if hx.pain.site %}, {{ hx.pain.site }}{% endif %}{% if hx.pain.trigger %}, on {{ hx.pain.trigger }}{% endif %}</div>{% endif %}
+             {% if hx.notes %}<div class="small">{{ hx.notes }}</div>{% endif %}</span></div>
+         {% endif %}
+         {% for e in c.exam or [] %}
+diff --git a/medsafety_setup/README.md b/medsafety_setup/README.md
+index 61bc8a6..56b5700 100644
+--- a/medsafety_setup/README.md
++++ b/medsafety_setup/README.md
+@@ -56,13 +56,14 @@ PostgreSQL stores unquoted names in lowercase (`Patient` becomes `patient`). Wri
+    It connects to `localhost:27017` and creates the `medsafety` database itself.
+ 3. The last thing it prints is the CHECK list. Every row should say **PASS** (23 rows). Re-run the check any time with `mongosh check_setup_mongo.js`.
+ 4. In Compass, connect to `mongodb://localhost:27017` and refresh to browse the `medsafety` collections. Compass's shell tab is fine for single queries: type `use medsafety` first.
+-5. `medsafety_examples_mongo.js` has ready-made queries (doctor's patient view, patient history, lab trends, note search, pharmacist queue, analytics) plus the inserts and updates the backend will do. It doesn't change any data, so it's safe to run.
++5. **Set up before 16 Nov 2026?** The Consult form now saves visits without vitals. Either re-run `mongosh medsafety_setup_mongo.js` (resets the demo data), or keep your data and run `mongosh "mongodb://localhost:27017/medsafety" update_encounters_validator.js` once. Without one of these, MongoDB refuses visits saved without vitals.
++6. `medsafety_examples_mongo.js` has ready-made queries (doctor's patient view, patient history, lab trends, note search, pharmacist queue, analytics) plus the inserts and updates the backend will do. It doesn't change any data, so it's safe to run.
+ 
+ ### The 5 collections
+ 
+ | Collection | One document per | Holds | Links to PostgreSQL |
+ |---|---|---|---|
+-| `encounters` (249) | clinic visit | **triage** (category P1–P4, complaint, pain score, vitals) and the doctor's **consultation note** | `nric`, `consultation.diagnosisIds`, `prescriptionIds`, `doctor.doctorId` |
++| `encounters` (249) | clinic visit | **triage** (reason for visit; vitals, pain score and category P1–P4 optional) and the doctor's **consultation note** | `nric`, `consultation.diagnosisIds`, `prescriptionIds`, `doctor.doctorId` |
+ | `patient_history` (202) | history fact | **smoking and alcohol**, past or outside **conditions**, **procedures**, **family history**, each with an effective period and who verified it. A change (e.g. quitting smoking) closes the old event (`superseded`) and adds a new one | `nric`, `recordedBy.id` (DoctorID), `encounterId` |
+ | `lab_results` (458) | lab result | test, value, unit, normal range, H/L/N flag, date; INR results for warfarin patients also carry the 2.0–3.0 target range | `nric`, `orderedBy` (DoctorID) |
+ | `prescription_audit` (182) | prescription | the **alerts** the doctor saw (interaction, allergy, lab), the doctor's reason for going ahead, and every **decision** in an `events` list (prescribed → approved / rejected) | `_id` = `PrescriptionID`, `nric`, `diagnosisId` |
+diff --git a/medsafety_setup/mongodb/medsafety_setup_mongo.js b/medsafety_setup/mongodb/medsafety_setup_mongo.js
+index 9ce719a..dbbcbe9 100644
+--- a/medsafety_setup/mongodb/medsafety_setup_mongo.js
++++ b/medsafety_setup/mongodb/medsafety_setup_mongo.js
+@@ -82,14 +82,14 @@ db.createCollection("encounters", {
+       doctor: { bsonType: "object", required: ["doctorId", "name"],
+                 properties: { doctorId: { bsonType: INT }, name: { bsonType: "string" }, hospital: { bsonType: "string" } } },
+       triage: {
+-        bsonType: "object", required: ["recordedAt", "category", "chiefComplaint", "vitals"],
++        bsonType: "object", required: ["recordedAt", "chiefComplaint"],   // vitals, category, pain: optional
+         properties: {
+           recordedAt: { bsonType: "date" },
+           category: { enum: ["P1", "P2", "P3", "P4"], description: "Singapore Patient Acuity Category" },
+           chiefComplaint: { bsonType: "string", minLength: 3 },
+           painScore: { bsonType: INT, minimum: 0, maximum: 10 },
+           vitals: {
+-            bsonType: "object", required: ["systolicBP", "diastolicBP", "heartRate", "temperatureC", "spo2"],
++            bsonType: "object",   // each vital optional, but checked for a sensible range when present
+             properties: {
+               systolicBP: { bsonType: INT, minimum: 50, maximum: 260 },
+               diastolicBP: { bsonType: INT, minimum: 20, maximum: 160 },
+diff --git a/medsafety_setup/mongodb/update_encounters_validator.js b/medsafety_setup/mongodb/update_encounters_validator.js
+new file mode 100644
+index 0000000..dcf815a
+--- /dev/null
++++ b/medsafety_setup/mongodb/update_encounters_validator.js
+@@ -0,0 +1,14 @@
++// One-off update for a database set up before 16 Nov 2026.
++// Makes vitals, triage category and pain score optional on encounters (the Consult
++// form now requires only the reason for visit and a diagnosis). Existing documents
++// are untouched. Re-running medsafety_setup_mongo.js does the same from scratch.
++//
++//   mongosh "mongodb://localhost:27017/medsafety" update_encounters_validator.js
++const info = db.getCollectionInfos({ name: "encounters" })[0];
++if (!info) { print("encounters not found: run medsafety_setup_mongo.js first"); quit(1); }
++const v = info.options.validator;
++const triage = v.$jsonSchema.properties.triage;
++triage.required = ["recordedAt", "chiefComplaint"];
++delete triage.properties.vitals.required;
++db.runCommand({ collMod: "encounters", validator: v, validationLevel: "strict" });
++print("encounters validator updated: triage requires only " + JSON.stringify(triage.required));
+-- 
+2.43.0
+
