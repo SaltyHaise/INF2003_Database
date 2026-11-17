@@ -52,9 +52,50 @@ def _dt(d):
     return datetime.combine(d, time(0), tzinfo=now().tzinfo) if d else None
 
 
+OLD_RULES_HINT = ("This database still has the validation rules from before 16 Nov 2026. Run "
+                  "medsafety_setup/mongodb/update_validators.js once (see medsafety_setup/README.md), then save again.")
+
+
+def _schema_problems(node, path=""):
+    """Walk MongoDB's errInfo.details ($jsonSchema failure report) into readable lines."""
+    out = []
+    op = node.get("operatorName")
+    if op == "required":
+        out += [f"{path + '.' if path else ''}{m} is missing" for m in node.get("missingProperties", [])]
+    elif op == "properties":
+        for prop in node.get("propertiesNotSatisfied", []):
+            sub = f"{path + '.' if path else ''}{prop.get('propertyName')}"
+            for d in prop.get("details", []):
+                out += _schema_problems(d, sub)
+    elif op == "items":
+        for d in node.get("details", []):
+            out += _schema_problems(d, f"{path}[{node.get('itemIndex', '?')}]")
+    elif op in ("enum", "bsonType", "minimum", "maximum", "minLength", "pattern", "minItems"):
+        val = node.get("consideredValue", node.get("consideredType"))
+        out.append(f"{path} {val!r} breaks the '{op}' rule")
+    else:
+        for d in node.get("details", []) + node.get("schemaRulesNotSatisfied", []):
+            out += _schema_problems(d, path)
+        for clause in node.get("clausesNotSatisfied", []):
+            for d in clause.get("details", []) if isinstance(clause, dict) else []:
+                out += _schema_problems(d, path)
+    return out
+
+
 def _mongo_error(e):
+    """MongoDB's message, plus which rule a refused document broke, in words."""
     details = getattr(e, "details", None) or {}
-    return details.get("errmsg") or str(e)
+    msg = details.get("errmsg") or str(e)
+    info = (details.get("errInfo") or {}).get("details")
+    if not info:
+        return msg
+    problems = _schema_problems(info)
+    if problems:
+        msg += ": " + "; ".join(dict.fromkeys(problems))
+    if any(x.startswith(("triage.vitals is missing", "triage.category is missing")) or ("alerts[" in x and ".type" in x)
+           for x in problems):
+        msg += ". " + OLD_RULES_HINT
+    return msg
 
 
 # --------------------------------------------------------------------------------------

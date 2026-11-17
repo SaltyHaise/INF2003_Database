@@ -29,7 +29,7 @@ Open **http://127.0.0.1:5000**, pick a doctor or pharmacist, and you're in.
 
 | As | Do this | What you should see |
 |---|---|---|
-| Doctor (e.g. Dr Ganesh Iyer) | **Consult** → patient *Deepa d/o Raju* → reason "knee pain" → tick *Osteoarthritis of knee* | The medicines for it appear, each checked: ibuprofen and naproxen show warfarin interaction, high INR, low kidney function, past peptic ulcer |
+| Doctor (e.g. Dr Ganesh Iyer) | **Consult** → patient *Deepa d/o Raju* → reason "knee pain" → diagnosis box: click it and choose *Osteoarthritis of knee* | The medicines for it appear, each checked: ibuprofen and naproxen show warfarin interaction, high INR, low kidney function, past peptic ulcer |
 | Doctor | Pick ibuprofen and save without a reason | Refused, with what you typed kept. Add a reason and the visit is saved and the prescription sent to the pharmacy |
 | Doctor | *Foo Ai Ling* → *Heart failure* → lisinopril, then "Add how to take…" under Advice | Spironolactone interaction plus a high-potassium lab alert; the advice line drafts the dose and side effects |
 | Pharmacist (e.g. Chong Wai Kit) | **Review queue** | Prescriptions with the most serious alerts first; the alerts the doctor saw and the doctor's reason |
@@ -40,7 +40,7 @@ Open **http://127.0.0.1:5000**, pick a doctor or pharmacist, and you're in.
 
 | Screen | Who | What it does |
 |---|---|---|
-| Consult | Doctor | The doctor's one screen for a visit. Allergies, medicines, conditions, labs and recent visits sit beside the visit, recorded in order: reason for visit (required); examination (optional, folded); diagnosis (required, tick or add new); medicines for that diagnosis, each checked against the patient, with dose, dates and a reason if there are alerts (or no medicine today); advice to the patient. One save stores the visit and sends any prescription to the pharmacy |
+| Consult | Doctor | The doctor's one screen for a visit. Allergies, medicines, conditions, labs and recent visits sit beside the visit, recorded in order: reason for visit (required); examination (optional, folded); diagnosis (required: one search box, the patient's existing conditions listed first); medicines for that diagnosis, each checked against the patient, with dose, dates and a reason if there are alerts (or no medicine today); advice to the patient. One save stores the visit and sends any prescription to the pharmacy |
 | Patient records | Doctor (edit), pharmacist (view) | Details, allergies, active and past prescriptions, diagnoses, medical history, past visits (triage, history, examination, plan) with note search, lab results; Start consultation opens Consult |
 | Review queue | Pharmacist | Pending prescriptions, alerts first; three checks; approve and dispense, or return to the doctor with a note |
 | Dispensed | Pharmacist | Recently approved and returned prescriptions |

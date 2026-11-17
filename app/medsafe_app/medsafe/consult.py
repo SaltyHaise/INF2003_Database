@@ -5,7 +5,7 @@
                     recent visits); on the right, the visit in the order it happens:
                       1. reason for visit (required)
                       2. examination: vitals, symptoms and findings (optional, folded)
-                      3. diagnosis (required): tick existing, or add new
+                      3. diagnosis (required): one search box; the patient's conditions first
                       4. medicines for that diagnosis, each safety-checked; pick one to
                          set the dose, or prescribe nothing today
                       5. advice given to the patient (optional)
@@ -69,29 +69,25 @@ def _int(v):
 
 
 def _diagnoses(f, nric):
-    """Diagnoses this visit addressed: ticked existing ones plus at most one new condition.
-    A 'new' condition the patient already has is treated as ticking the existing one."""
+    """The visit's diagnosis, picked from the condition list in one search box.
+
+    If the patient already has that condition, the visit is filed under the existing
+    Diagnosis row; otherwise a new one is added on save. Returns
+    (existing rows by id, diagnosis ids to link, new disease or None, disease id, errors)."""
     errors = []
     existing = {g["diagnosisid"]: g for g in records.diagnoses(nric)}
-    dx_ids = [int(x) for x in f.getlist("diagnosis_ids") if x.isdigit() and int(x) in existing]
-    new_disease = None
-    if f.get("new_disease_id", "").isdigit():
-        new_disease = query_one("SELECT DiseaseID, Name FROM Disease WHERE DiseaseID = %s", (int(f["new_disease_id"]),))
-    elif f.get("new_disease_q", "").strip():
-        errors.append("Choose the new diagnosis from the list, or clear the box.")
-    if new_disease:
-        same = next((g for g in existing.values() if g["diseaseid"] == new_disease["diseaseid"]), None)
-        if same:
-            if same["diagnosisid"] not in dx_ids:
-                dx_ids.append(same["diagnosisid"])
-            new_disease = None
-    # conditions the medicines can be for: the new one first, then the ticked ones
-    options = ([{"diseaseid": new_disease["diseaseid"], "name": new_disease["name"], "new": True}] if new_disease else []) + \
-              [{"diseaseid": existing[d]["diseaseid"], "name": existing[d]["disease"]} for d in dx_ids]
-    treat = _int(f.get("treat"))
-    if treat not in [o["diseaseid"] for o in options]:
-        treat = options[0]["diseaseid"] if options else None
-    return existing, dx_ids, new_disease, options, treat, errors
+    disease = None
+    if f.get("disease_id", "").isdigit():
+        disease = query_one("SELECT DiseaseID, Name FROM Disease WHERE DiseaseID = %s", (int(f["disease_id"]),))
+    if not disease:
+        if f.get("diagnosis_q", "").strip():
+            errors.append("Choose the diagnosis from the list that appears as you type.")
+        return existing, [], None, None, errors
+    same = max((g for g in existing.values() if g["diseaseid"] == disease["diseaseid"]),
+               key=lambda g: (g["dateofdiagnosis"], g["diagnosisid"]), default=None)
+    if same:
+        return existing, [same["diagnosisid"]], None, disease["diseaseid"], errors
+    return existing, [], disease, disease["diseaseid"], errors
 
 
 def _drug_choice(f, treat):
@@ -112,17 +108,18 @@ def _render(nric, f=None, errors=None, status=200):
         visits, labs, hist, mongo_ok = records.encounters(nric, limit=3), records.labs(nric), records.history(nric), True
     except PyMongoError:
         visits, labs, hist, mongo_ok = [], [], [], False
-    existing, dx_ids, new_disease, options, treat, _ = _diagnoses(f, nric)
+    existing, dx_ids, new_disease, treat, _ = _diagnoses(f, nric)
     drug_id = _drug_choice(f, treat)
     candidates, selected = doctor.drug_options(nric, treat, drug_id) if treat else ([], None)
     dxs = list(existing.values())
     dx_names, history_lines = records.summary_lines(nric, dxs, hist)
-    treat_dx = next((g for g in dxs if g["diseaseid"] == treat), None)
+    treat_dx = existing[dx_ids[0]] if dx_ids else None
     return render_template(
         "consult.html", p=p, allergies=records.allergies(nric), active=records.active_meds(nric),
         dxs=dxs, dx_names=dx_names, history_lines=history_lines, visits=visits, labs=labs, mongo_ok=mongo_ok,
-        vf=f, visit_errors=errors or [], dx_picked=[str(d) for d in dx_ids], treat_options=options, treat=treat,
-        treat_name=next((o["name"] for o in options if o["diseaseid"] == treat), None), treat_dx=treat_dx,
+        vf=f, visit_errors=errors or [], treat=treat,
+        treat_name=(new_disease["name"] if new_disease else treat_dx["disease"] if treat_dx else None), treat_dx=treat_dx,
+        diagnosis=({"existing": existing[dx_ids[0]] if dx_ids else None} if treat else None),
         candidates=candidates, selected=selected), status
 
 
@@ -172,10 +169,10 @@ def save(nric):
     findings = f.get("note", "").strip()[:3000]
 
     # ---- 3. diagnosis (required) -----------------------------------------------------
-    existing, dx_ids, new_disease, options, treat, dx_errors = _diagnoses(f, nric)
+    existing, dx_ids, new_disease, treat, dx_errors = _diagnoses(f, nric)
     errors += dx_errors
-    if not dx_ids and not new_disease:
-        errors.append("Tick a diagnosis this visit addressed, or add a new one.")
+    if not treat and not dx_errors:
+        errors.append("Choose the diagnosis.")
 
     # ---- 4. medicine (optional) ------------------------------------------------------
     rx = None

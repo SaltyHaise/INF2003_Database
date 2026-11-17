@@ -34,20 +34,27 @@
       list.hidden = false;
     }
     input.setAttribute("autocomplete", "off");
-    input.addEventListener("input", () => {
-      if (hidden) hidden.value = "";
+    const listOnEmpty = box.dataset.min === "0";   // e.g. the patient's own conditions on click
+    function lookup(q) {
       clearTimeout(timer);
-      const q = input.value.trim();
-      if (q.length < 2) { list.hidden = true; return; }
       timer = setTimeout(async () => {
         const my = ++seq;
         try {
-          const r = await fetch(box.dataset.src + "?q=" + encodeURIComponent(q));
+          const src = box.dataset.src;
+          const r = await fetch(src + (src.includes("?") ? "&" : "?") + "q=" + encodeURIComponent(q));
           if (my !== seq) return;
-          items = await r.json(); active = items.length ? 0 : -1; render();
+          items = await r.json(); active = items.length ? 0 : -1;
+          if (items.length || q) render(); else list.hidden = true;
         } catch (e) { list.hidden = true; }
-      }, 150);
+      }, q ? 150 : 0);
+    }
+    input.addEventListener("input", () => {
+      if (hidden) hidden.value = "";
+      const q = input.value.trim();
+      if (q.length < 2) { if (listOnEmpty && !q) lookup(""); else { clearTimeout(timer); list.hidden = true; } return; }
+      lookup(q);
     });
+    if (listOnEmpty) input.addEventListener("focus", () => { if (!input.value.trim()) lookup(""); });
     input.addEventListener("keydown", e => {
       if (list.hidden) return;
       if (e.key === "ArrowDown") { active = Math.min(items.length - 1, active + 1); render(); e.preventDefault(); }
@@ -125,11 +132,8 @@
       btn.formAction = vf.getAttribute("action").split("#")[0] + anchor;
       btn.click();
     };
-    vf.querySelectorAll("[name=diagnosis_ids]").forEach(cb => cb.addEventListener("change", () => refresh("#medicines")));
-    const treatSel = vf.querySelector("select[name=treat]");
-    if (treatSel) treatSel.addEventListener("change", () => refresh("#medicines"));
-    const newdx = document.getElementById("newdx-box");
-    if (newdx) newdx.addEventListener("ac:chosen", () => refresh("#medicines"));
+    const dxBox = document.getElementById("dx-box");
+    if (dxBox) dxBox.addEventListener("ac:chosen", () => refresh("#medicines"));
     vf.querySelectorAll("[name=drug_id]").forEach(r => r.addEventListener("change", () => refresh(r.value ? "#rx" : "#medicines")));
     vf.querySelectorAll("tr.pickrow").forEach(tr => tr.addEventListener("click", e => {
       const r = tr.querySelector("[name=drug_id]");

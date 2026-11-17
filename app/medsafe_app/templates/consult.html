@@ -110,25 +110,20 @@
         <textarea id="v-note" name="note" rows="2" maxlength="3000" placeholder="Crackles right base, throat injected.">{{ vf.get('note', '') }}</textarea></div>
 
     <h3 class="vstep" id="diagnosis">3. Diagnosis <span class="req">required</span></h3>
-    <div class="picks">{% for g in dxs %}<label class="pick"><input type="checkbox" name="diagnosis_ids" value="{{ g.diagnosisid }}" {{ 'checked' if g.diagnosisid|string in dx_picked }}><span>{{ g.disease }}</span></label>{% endfor %}</div>
-    <div class="ac" id="newdx-box" data-src="{{ url_for('api.diseases') }}" style="margin-top:8px">
-      <input type="text" id="v-newdx" name="new_disease_q" aria-label="New diagnosis" placeholder="New diagnosis: search, e.g. pneumonia" value="{{ vf.get('new_disease_q', '') }}" autocomplete="off">
-      <input type="hidden" name="new_disease_id" value="{{ vf.get('new_disease_id', '') }}">
+    <div class="ac" id="dx-box" data-min="0" data-src="{{ url_for('api.diseases', nric=p.nric) }}">
+      <input type="text" id="v-dx" name="diagnosis_q" aria-label="Diagnosis" autocomplete="off"
+             placeholder="Click to see this patient's conditions, or type to search, e.g. urinary tract infection" value="{{ vf.get('diagnosis_q', '') }}">
+      <input type="hidden" name="disease_id" value="{{ vf.get('disease_id', '') }}">
     </div>
+    {% if diagnosis %}<div class="hint">{% if diagnosis.existing %}Already diagnosed {{ diagnosis.existing.dateofdiagnosis|mon }}: this visit is filed under it.{% else %}New for this patient: it's added to their diagnoses when you save.{% endif %}</div>{% endif %}
 
     <h3 class="vstep" id="medicines">4. Medicine</h3>
     {% if not treat %}
-      <p class="muted small" style="margin:0">Choose a diagnosis above: the medicines for it appear here, each checked against this patient.</p>
+      <p class="muted small" style="margin:0">Choose the diagnosis above: the medicines for it appear here, each checked against this patient.</p>
     {% else %}
       <input type="hidden" name="treat_shown" value="{{ treat }}">
       <div class="row" style="margin-bottom:10px">
-        {% if treat_options|length > 1 %}
-          <label class="small" for="v-treat">Medicines for</label>
-          <select id="v-treat" name="treat" style="width:auto">{% for o in treat_options %}<option value="{{ o.diseaseid }}" {{ 'selected' if o.diseaseid == treat }}>{{ o.name }}{{ ' (new)' if o.new }}</option>{% endfor %}</select>
-        {% else %}
-          <input type="hidden" name="treat" value="{{ treat }}">
-          <span class="small">Medicines for <b>{{ treat_name|lower }}</b>, checked against this patient</span>
-        {% endif %}
+        <span class="small">Medicines for <b>{{ treat_name|lower }}</b>, checked against this patient</span>
         <span class="right"><span class="src">PostgreSQL · ToAddress ⋈ Drug</span></span>
       </div>
       <div class="tbl-wrap"><table class="tbl boxed meds">

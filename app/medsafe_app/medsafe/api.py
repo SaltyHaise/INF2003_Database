@@ -35,17 +35,24 @@ def patients():
 @bp.route("/diseases")
 @role_required("doctor", "pharmacist")
 def diseases():
-    q = _term()
-    if len(q) < 2:
+    """Conditions matching ?q=. With ?nric=, the patient's existing diagnoses come first,
+    and an empty query lists only those (shown when the box is clicked)."""
+    q, nric = _term(), (request.args.get("nric") or "").strip()[:9]
+    if len(q) < 2 and not nric:
         return jsonify([])
     rows = query("""
-        SELECT ds.DiseaseID, ds.Name, count(ta.DrugID) AS drugs
-        FROM Disease ds LEFT JOIN ToAddress ta ON ta.DiseaseID = ds.DiseaseID
-        WHERE ds.Name ILIKE %(like)s
+        SELECT ds.DiseaseID, ds.Name, count(DISTINCT ta.DrugID) AS drugs, max(g.DateOfDiagnosis) AS since
+        FROM Disease ds
+        LEFT JOIN ToAddress ta ON ta.DiseaseID = ds.DiseaseID
+        LEFT JOIN Diagnosis g ON g.DiseaseID = ds.DiseaseID AND g.NRIC = %(nric)s
+        WHERE (%(q)s = '' AND g.DiagnosisID IS NOT NULL) OR (%(q)s <> '' AND ds.Name ILIKE %(like)s)
         GROUP BY ds.DiseaseID, ds.Name
-        ORDER BY (ds.Name ILIKE %(start)s) DESC, similarity(ds.Name, %(q)s) DESC, ds.Name
-        LIMIT 10""", {"q": q, "like": f"%{q}%", "start": f"{q}%"})
-    return jsonify([{"id": r["diseaseid"], "label": r["name"], "sub": f"{r['drugs']} drugs in reference data"} for r in rows])
+        ORDER BY (max(g.DateOfDiagnosis) IS NOT NULL) DESC, (ds.Name ILIKE %(start)s) DESC,
+                 similarity(ds.Name, %(q)s) DESC, ds.Name
+        LIMIT 12""", {"q": q if len(q) >= 2 else "", "nric": nric, "like": f"%{q}%", "start": f"{q}%"})
+    return jsonify([{"id": r["diseaseid"], "label": r["name"],
+                     "sub": (f"Already diagnosed · {r['since']:%b %Y}" if r["since"] else f"{r['drugs']} drugs in reference data")}
+                    for r in rows])
 
 
 @bp.route("/drugs")
