@@ -41,7 +41,7 @@ def start():
     try:
         recent = list(mongo().encounters.find({"doctor.doctorId": user["id"]},
                                               {"nric": 1, "visitDate": 1, "triage.chiefComplaint": 1, "visitType": 1})
-                      .sort("visitDate", -1).limit(10))
+                      .sort("visitDate", -1).limit(5))
     except PyMongoError:
         recent = []
     names = {}
@@ -51,7 +51,7 @@ def start():
     for v in recent:
         v["name"] = names.get(v["nric"], v["nric"])
     rx_recent = query("""SELECT * FROM v_prescription_detail WHERE DoctorID = %s
-                         ORDER BY PrescriptionID DESC LIMIT 8""", (user["id"],))
+                         ORDER BY PrescriptionID DESC LIMIT 5""", (user["id"],))
     return render_template("consult_start.html", recent=recent, rx_recent=rx_recent)
 
 

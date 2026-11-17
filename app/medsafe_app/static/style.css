@@ -304,3 +304,10 @@ label.f .muted { font-weight: 400; }
 .save-row { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); align-items: center; }
 .advice-text { white-space: pre-line; }
 #visit-form > input[name=complaint] { width: 100%; }
+
+/* consult start: two compact lists side by side */
+.recent .card { padding: 16px 18px; }
+.tbl.compact th, .tbl.compact td { padding: 8px 10px; vertical-align: top; }
+.tbl.compact .sub { font-size: 12.5px; }
+.tbl.compact .clip { max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbl.compact .right-cell { text-align: right; }

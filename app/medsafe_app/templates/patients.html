@@ -9,7 +9,17 @@
   <form method="get" class="row" style="margin-bottom:14px">
     <input type="search" name="q" value="{{ q }}" placeholder="Name or NRIC" aria-label="Search patients" style="flex:1; max-width:420px">
     <button class="btn">Search</button>
+    {% if q %}<a class="small" href="{{ url_for('patients.search') }}">Clear search</a>{% endif %}
   </form>
+  {% if not q %}
+  <div class="row" style="margin-bottom:6px; align-items:baseline">
+    <span class="muted small">{{ total }} patients · {{ letter_total }} starting with {{ letter }}{% if letter_total > rows|length %} · showing the first {{ rows|length }}: search to narrow it down{% endif %}</span>
+    <span class="right"><span class="src">PostgreSQL · B-tree ix_patient_name_letter</span></span>
+  </div>
+  <nav class="az" aria-label="Patients by first letter of name">
+    {% for l in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' %}{% if l in letters %}<a href="{{ url_for('patients.search', letter=l) }}" class="{{ 'on' if l == letter }}" {{ 'aria-current="page"'|safe if l == letter }} title="{{ letters[l] }} patient{{ 's' if letters[l] != 1 }}">{{ l }}</a>{% else %}<span aria-hidden="true">{{ l }}</span>{% endif %}{% endfor %}
+  </nav>
+  {% endif %}
   <div class="tbl-wrap"><table class="tbl">
     <thead><tr><th>Patient</th><th>NRIC</th><th>Sex, age</th><th>Active meds</th><th>Allergies</th></tr></thead>
     <tbody>
@@ -18,7 +28,7 @@
         <td><a href="{{ url_for('patients.record', nric=r.nric) }}"><b>{{ r.name }}</b></a></td><td class="mono">{{ r.nric }}</td>
         <td>{{ r.sex }}, {{ r.dob|age }}</td><td class="num">{{ r.active_meds }}</td>
         <td>{% if r.allergies %}<span class="chip ret">{{ r.allergies }}</span>{% else %}<span class="muted">—</span>{% endif %}</td></tr>
-    {% else %}<tr><td colspan="5" class="empty">No patients match "{{ q }}".</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="5" class="empty">{% if q %}No patients match "{{ q }}".{% else %}No patients yet.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table></div>
 </section>
