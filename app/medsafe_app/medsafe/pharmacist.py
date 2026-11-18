@@ -43,6 +43,11 @@ def queue():
     if sel:
         detail = {"rx": sel, "audit": audits.get(sel_id) or {}, "allergies": records.allergies(sel["nric"])}
         detail["prescribed"] = next((e for e in detail["audit"].get("events", []) if e["action"] == "prescribed"), {})
+        # the other prescriptions written in the same visit, so they're reviewed together
+        eid = detail["audit"].get("encounterId")
+        detail["same_visit"] = list(mongo().prescription_audit.find(
+            {"encounterId": eid, "_id": {"$ne": sel_id}}, {"drug.name": 1, "drug.dose": 1, "status": 1}
+        ).sort("_id", 1)) if eid else []
     return render_template("queue.html", rows=rows, sel=detail, alerts_first=alerts_first, checks=CHECKS)
 
 

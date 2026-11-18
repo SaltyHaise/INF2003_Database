@@ -83,10 +83,10 @@
     });
   });
 
-  // Prescription form: end date preview + custom dose fields
-  const rxForm = document.getElementById("rx-form");
-  if (rxForm) {
-    const start = rxForm.querySelector("[name=start]"), days = rxForm.querySelector("[name=days]"), out = document.getElementById("end-preview");
+  // Prescription dose cards (one per medicine): end date preview + custom dose fields
+  document.querySelectorAll(".rx-card").forEach(card => {
+    const start = card.querySelector("[name^=start_]"), days = card.querySelector("[name^=days_]"),
+          out = card.querySelector(".end-preview");
     const upd = () => {
       if (!start.value) { out.textContent = "—"; return; }
       const n = parseInt(days.value, 10);
@@ -95,10 +95,10 @@
       out.textContent = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
     };
     start.addEventListener("input", upd); days.addEventListener("input", upd); upd();
-    const custom = document.getElementById("custom-fields");
-    const sync = () => { const c = rxForm.querySelector("[name=template]:checked"); custom.hidden = !(c && c.value === "custom"); };
-    rxForm.querySelectorAll("[name=template]").forEach(r => r.addEventListener("change", sync)); sync();
-  }
+    const custom = card.querySelector(".custom-fields");
+    const sync = () => { const c = card.querySelector("[name^=template_]:checked"); custom.hidden = !(c && c.value === "custom"); };
+    card.querySelectorAll("[name^=template_]").forEach(r => r.addEventListener("change", sync)); sync();
+  });
 
   // Review form: approve needs all checks
   const rv = document.getElementById("review-form");
@@ -134,34 +134,44 @@
     };
     const dxBox = document.getElementById("dx-box");
     if (dxBox) dxBox.addEventListener("ac:chosen", () => refresh("#medicines"));
-    vf.querySelectorAll("[name=drug_id]").forEach(r => r.addEventListener("change", () => refresh(r.value ? "#rx" : "#medicines")));
+    // Ticking a medicine adds its dose card; unticking (or Remove on the card) takes it away.
+    vf.querySelectorAll("[name=drug_ids]").forEach(r => r.addEventListener("change", () =>
+      refresh(r.checked ? "#rx-" + r.value : "#medicines")));
     vf.querySelectorAll("tr.pickrow").forEach(tr => tr.addEventListener("click", e => {
-      const r = tr.querySelector("[name=drug_id]");
-      if (r && !r.checked && !e.target.closest("a, input, button, details")) { r.checked = true; r.dispatchEvent(new Event("change")); }
+      const r = tr.querySelector("[name=drug_ids]");
+      if (r && !e.target.closest("a, input, button, details")) { r.checked = !r.checked; r.dispatchEvent(new Event("change")); }
+    }));
+    vf.querySelectorAll("[data-untick]").forEach(b => b.addEventListener("click", () => {
+      const r = vf.querySelector(`[name=drug_ids][value="${b.dataset.untick}"]`);
+      if (r) { r.checked = false; r.dispatchEvent(new Event("change")); }
     }));
     const search = document.getElementById("drugsearch-box");
-    if (search) search.addEventListener("ac:chosen", () => refresh("#rx"));
+    if (search) search.addEventListener("ac:chosen", e => refresh("#rx-" + e.detail.id));
 
-    // Advice: add how to take the chosen medicine and its common side effects
+    // Advice: add how to take each ticked medicine and its common side effects
     const draft = document.getElementById("advice-draft");
     if (draft) draft.addEventListener("click", () => {
       const box = document.getElementById("v-advice");
-      const t = vf.querySelector("[name=template]:checked");
-      let how = "";
-      if (t && t.value === "custom") {
-        const amt = vf.querySelector("[name=dose_amount]").value, unit = vf.querySelector("[name=dose_unit]").value,
-              freq = vf.querySelector("[name=frequency]").value;
-        how = [amt && `${amt} ${unit}`, freq].filter(Boolean).join(", ");
-      } else if (t) {
-        const say = t.closest("label").querySelector("[data-say]");
-        how = say ? say.dataset.say : "";
-      }
-      const days = vf.querySelector("[name=days]");
-      let line = `${draft.dataset.drug[0].toUpperCase()}${draft.dataset.drug.slice(1)}: ${how || "as directed"}`;
-      if (days && days.value) line += ` for ${days.value} days`;
-      line += ".";
-      if (draft.dataset.se) line += ` Possible side effects: ${draft.dataset.se}.`;
-      box.value = box.value.trim() ? `${box.value.trim()}\n${line}` : line;
+      const lines = [...vf.querySelectorAll(".rx-card")].map(card => {
+        const t = card.querySelector("[name^=template_]:checked");
+        let how = "";
+        if (t && t.value === "custom") {
+          const v = n => card.querySelector(`[name^=${n}_]`).value;
+          how = [v("dose_amount") && `${v("dose_amount")} ${v("dose_unit")}`, v("frequency")].filter(Boolean).join(", ");
+        } else if (t) {
+          const say = t.closest("label").querySelector("[data-say]");
+          how = say ? say.dataset.say : "";
+        }
+        const days = card.querySelector("[name^=days_]");
+        const drug = card.dataset.drug;
+        let line = `${drug[0].toUpperCase()}${drug.slice(1)}: ${how || "as directed"}`;
+        if (days && days.value) line += ` for ${days.value} days`;
+        line += ".";
+        if (card.dataset.se) line += ` Possible side effects: ${card.dataset.se}.`;
+        return line;
+      }).filter(l => !box.value.includes(l));
+      if (!lines.length) return;
+      box.value = [box.value.trim(), ...lines].filter(Boolean).join("\n");
       box.focus();
     });
   }

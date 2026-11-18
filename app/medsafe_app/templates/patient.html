@@ -214,6 +214,8 @@
       {% else %}
       <details><summary class="small" style="cursor:pointer">Consultation note</summary><div class="note">{{ c.note }}</div></details>
       {% endif %}
+      {% if v.rx %}<div class="cline visit-rx"><span class="lbl">Prescribed</span>
+        <span>{% for r in v.rx %}<div>{{ r.genericname|title }} <span class="small muted">{{ r|dose }}{% if r.route %}, {{ r.route|lower }}{% endif %}</span> {{ status_chip(r.reviewstatus) }}</div>{% endfor %}</span></div>{% endif %}
     </div>
     {% else %}<p class="empty">{{ 'No notes match.' if notes_q else 'No visits recorded.' }}</p>{% endfor %}
   </div>

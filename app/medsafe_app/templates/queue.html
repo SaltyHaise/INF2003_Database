@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import alert_card, csrf with context %}
+{% from "_macros.html" import alert_card, status_chip, csrf with context %}
 {% block title %}Review queue{% endblock %}
 {% block content %}
 <div class="split" style="grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr)">
@@ -39,6 +39,10 @@
       <a style="margin-left:auto" href="{{ url_for('patients.record', nric=r.nric) }}">Full record</a>
     </div>
 
+    {% if sel.same_visit %}
+    <div class="reasonbox" style="margin:-4px 0 14px"><div class="muted small">Also prescribed in the same visit</div>
+      {% for o in sel.same_visit %}<div><a href="{{ url_for('pharmacist.queue', rx=o._id) }}">{{ o.drug.name|title }}</a> <span class="small muted">{{ o.drug.dose }}</span> {{ status_chip(o.status) }}</div>{% endfor %}</div>
+    {% endif %}
     <h3 style="margin-bottom:8px">Alerts the doctor saw <span class="src" style="font-weight:400">MongoDB · prescription_audit</span></h3>
     <div class="stack" style="gap:8px">
       {% for x in (a.alerts or [])|group_alerts %}

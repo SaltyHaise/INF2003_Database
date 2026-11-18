@@ -117,34 +117,30 @@
     </div>
     {% if diagnosis %}<div class="hint">{% if diagnosis.existing %}Already diagnosed {{ diagnosis.existing.dateofdiagnosis|mon }}: this visit is filed under it.{% else %}New for this patient: it's added to their diagnoses when you save.{% endif %}</div>{% endif %}
 
-    <h3 class="vstep" id="medicines">4. Medicine</h3>
+    <h3 class="vstep" id="medicines">4. Medicines <span class="muted small">tick one or more, or none</span></h3>
     {% if not treat %}
       <p class="muted small" style="margin:0">Choose the diagnosis above: the medicines for it appear here, each checked against this patient.</p>
     {% else %}
-      <input type="hidden" name="treat_shown" value="{{ treat }}">
+      <input type="hidden" name="treat_shown" value="{{ treat }}">{% for s in selected %}<input type="hidden" name="drug_order" value="{{ s.drugid }}">{% endfor %}
       <div class="row" style="margin-bottom:10px">
-        <span class="small">Medicines for <b>{{ treat_name|lower }}</b>, checked against this patient</span>
+        <span class="small">Medicines for <b>{{ treat_name|lower }}</b>, checked against this patient{% if selected %} and the {{ selected|length }} ticked{% endif %}</span>
         <span class="right"><span class="src">PostgreSQL · ToAddress ⋈ Drug</span></span>
       </div>
       <div class="tbl-wrap"><table class="tbl boxed meds">
-        <thead><tr><th></th><th>Medicine</th><th>Interacts with current meds</th><th>Allergy</th><th>History &amp; labs</th><th>Common side effects</th><th>Result</th></tr></thead>
+        <thead><tr><th></th><th>Medicine</th><th>Interacts with</th><th>Allergy</th><th>History &amp; labs</th><th>Common side effects</th><th>Result</th></tr></thead>
         <tbody>
-        <tr class="pickrow {{ 'sel' if not selected }}">
-          <td><input type="radio" name="drug_id" value="" aria-label="No medicine today" {{ 'checked' if not selected }}></td>
-          <td colspan="6"><b>No medicine today</b> <span class="muted small">advice or review only</span></td>
-        </tr>
     {% for c in candidates %}
       {% set ck = c.check %}
-      <tr class="pickrow {{ 'sel' if selected and c.drugid == selected.drugid }}">
-        <td><input type="radio" name="drug_id" value="{{ c.drugid }}" aria-label="Prescribe {{ c.genericname }}" {{ 'checked' if selected and c.drugid == selected.drugid }}></td>
+      <tr class="pickrow {{ 'sel' if c.picked }}">
+        <td><input type="checkbox" name="drug_ids" value="{{ c.drugid }}" aria-label="Prescribe {{ c.genericname }}" {{ 'checked' if c.picked }}></td>
         <td><b>{{ c.genericname }}</b>
           <div class="sub">{% if c.templates %}{{ c.templates[0]|formroute or 'Template' }}{% if c.templates|length > 1 %} · {{ c.templates|length }} templates{% endif %}{% else %}No dose template yet{% endif %}
           {% if c.searched %} · <span class="chip today">added by search</span>{% endif %}</div></td>
         <td class="small warn-text">
-          {% set groups = {} %}{% set avoid = [] %}
-          {% for i in ck.interactions %}{% set _ = groups.setdefault(i.withDrug, []).append(i.effect|effect) %}{% if i.severity == 'avoid' %}{% set _ = avoid.append(i.withDrug) %}{% endif %}{% endfor %}
-          {% for d, effs in groups.items() %}<div class="ix-line"><b>{{ d|lower }}</b> {{ effs|unique|join(', ') }}{% if d in avoid %} <span class="chip ret">avoid</span>{% endif %}</div>{% endfor %}
-          {% for x in ck.duplicates %}<div>Already taking {{ x.ingredient }}</div>{% endfor %}
+          {% set groups = {} %}{% set avoid = [] %}{% set now_ = [] %}
+          {% for i in ck.interactions %}{% set _ = groups.setdefault(i.withDrug, []).append(i.effect|effect) %}{% if i.severity == 'avoid' %}{% set _ = avoid.append(i.withDrug) %}{% endif %}{% if i.sameVisit %}{% set _ = now_.append(i.withDrug) %}{% endif %}{% endfor %}
+          {% for d, effs in groups.items() %}<div class="ix-line"><b>{{ d|lower }}</b>{% if d in now_ %} <span class="chip today">ticked</span>{% endif %} {{ effs|unique|join(', ') }}{% if d in avoid %} <span class="chip ret">avoid</span>{% endif %}</div>{% endfor %}
+          {% for x in ck.duplicates %}<div>{% if x.sameVisit %}{{ x.ingredient|lower }} also in {{ x.withDrug|lower }} <span class="chip today">ticked</span>{% else %}Already taking {{ x.ingredient }}{% endif %}</div>{% endfor %}
           {% if not groups and not ck.duplicates %}<span class="muted">—</span>{% endif %}
         </td>
         <td class="small warn-text">{% for a in ck.allergies %}<div>{{ a.ingredient }} ({{ a.severity }})</div>{% else %}<span class="muted">—</span>{% endfor %}</td>
@@ -164,44 +160,44 @@
       <div class="row" style="margin-top:10px">
         <span class="small">Not listed?</span>
         <div class="ac" id="drugsearch-box" style="flex:1; min-width:240px; max-width:420px" data-src="{{ url_for('api.drugs') }}">
-          <input type="search" aria-label="Search any medicine" placeholder="Search any medicine to check it" autocomplete="off">
+          <input type="search" aria-label="Search any medicine" placeholder="Search any medicine to add it" autocomplete="off">
           <input type="hidden" name="drug_search_id" value="">
         </div>
         <span class="faint small">"No alerts found" means nothing is recorded in our data, not that it's safe.</span>
       </div>
 
-      {% if selected %}{% set ck = selected.check %}
-      <div class="rx-panel" id="rx">
-        <div id="rx-form" class="split">
+      {% for sel in selected %}{% set ck = sel.check %}{% set k = sel.drugid %}
+      <div class="rx-panel rx-card" id="rx-{{ k }}" data-drug="{{ sel.genericname|lower }}" data-se="{{ ck.side_effects|join(', ') }}">
+        <div class="split">
           <div>
-            <h3 style="margin:0 0 10px">{{ selected.genericname|title }}</h3>
+            <div class="row" style="margin-bottom:10px">
+              <h3 style="margin:0">{{ loop.index }}. {{ sel.genericname|title }}</h3>
+              <button type="button" class="linkbtn right" data-untick="{{ k }}">Remove</button>
+            </div>
             <label class="f">Dose</label>
             <div class="stack" style="gap:8px">
-              {% set chosen = vf.get('template') or (selected.templates[0].prescriptiontemplateid|string if selected.templates else 'custom') %}
-              {% for t in selected.templates %}
-              <label class="tpl"><input type="radio" name="template" value="{{ t.prescriptiontemplateid }}" {{ 'checked' if chosen == t.prescriptiontemplateid|string }}>
+              {% set chosen = vf.get('template_' ~ k) or (sel.templates[0].prescriptiontemplateid|string if sel.templates else 'custom') %}
+              {% for t in sel.templates %}
+              <label class="tpl"><input type="radio" name="template_{{ k }}" value="{{ t.prescriptiontemplateid }}" {{ 'checked' if chosen == t.prescriptiontemplateid|string }}>
                 <span data-say="{{ t|dose }}{% if t.route %}, {{ t.route|lower }}{% endif %}">{{ t|dose }}{% if t.route %}, {{ t.route|lower }}{% endif %}{% if t.dosage_form %} · {{ t.dosage_form|lower }}{% endif %}</span>
                 <span class="right">Template #{{ t.prescriptiontemplateid }}</span></label>
               {% endfor %}
-              <label class="tpl"><input type="radio" name="template" value="custom" {{ 'checked' if chosen == 'custom' }}>
+              <label class="tpl"><input type="radio" name="template_{{ k }}" value="custom" {{ 'checked' if chosen == 'custom' }}>
                 <span>Custom — write my own</span><span class="right">Saved as a new template</span></label>
             </div>
-            <div id="custom-fields" class="fields" style="margin-top:12px">
-              <div><label class="f" for="dose_amount">Dose</label><input type="number" step="any" min="0" id="dose_amount" name="dose_amount" value="{{ vf.get('dose_amount', '') }}" placeholder="400"></div>
-              <div><label class="f" for="dose_unit">Unit</label><input type="text" id="dose_unit" name="dose_unit" value="{{ vf.get('dose_unit', 'mg') }}"></div>
-              <div style="grid-column: span 2"><label class="f" for="frequency">Frequency</label><input type="text" id="frequency" name="frequency" value="{{ vf.get('frequency', '') }}" placeholder="3 times daily after food"></div>
-              <div><label class="f" for="route">Route</label>
-                <select id="route" name="route">{% for r in ['ORAL', 'TOPICAL', 'INHALATION', 'INTRAVENOUS', 'INTRAMUSCULAR', 'SUBCUTANEOUS', 'OPHTHALMIC', 'NASAL', 'RECTAL', 'TRANSDERMAL'] %}<option {{ 'selected' if vf.get('route') == r }}>{{ r }}</option>{% endfor %}</select></div>
-              <div><label class="f" for="dosage_form">Form</label><input type="text" id="dosage_form" name="dosage_form" value="{{ vf.get('dosage_form', 'TABLET') }}"></div>
+            <div class="fields custom-fields" style="margin-top:12px">
+              <div><label class="f" for="dose_amount_{{ k }}">Dose</label><input type="number" step="any" min="0" id="dose_amount_{{ k }}" name="dose_amount_{{ k }}" value="{{ vf.get('dose_amount_' ~ k, '') }}" placeholder="400"></div>
+              <div><label class="f" for="dose_unit_{{ k }}">Unit</label><input type="text" id="dose_unit_{{ k }}" name="dose_unit_{{ k }}" value="{{ vf.get('dose_unit_' ~ k, 'mg') }}"></div>
+              <div style="grid-column: span 2"><label class="f" for="frequency_{{ k }}">Frequency</label><input type="text" id="frequency_{{ k }}" name="frequency_{{ k }}" value="{{ vf.get('frequency_' ~ k, '') }}" placeholder="3 times daily after food"></div>
+              <div><label class="f" for="route_{{ k }}">Route</label>
+                <select id="route_{{ k }}" name="route_{{ k }}">{% for r in ['ORAL', 'TOPICAL', 'INHALATION', 'INTRAVENOUS', 'INTRAMUSCULAR', 'SUBCUTANEOUS', 'OPHTHALMIC', 'NASAL', 'RECTAL', 'TRANSDERMAL'] %}<option {{ 'selected' if vf.get('route_' ~ k) == r }}>{{ r }}</option>{% endfor %}</select></div>
+              <div><label class="f" for="dosage_form_{{ k }}">Form</label><input type="text" id="dosage_form_{{ k }}" name="dosage_form_{{ k }}" value="{{ vf.get('dosage_form_' ~ k, 'TABLET') }}"></div>
             </div>
             <div class="fields" style="margin-top:14px">
-              <div><label class="f" for="start">Start</label><input type="date" id="start" name="start" min="{{ today().isoformat() }}" value="{{ vf.get('start') or today().isoformat() }}" required></div>
-              <div><label class="f" for="days">Days</label><input type="number" id="days" name="days" min="1" max="365" value="{{ vf.get('days', '14') }}"><div class="hint">Blank = ongoing</div></div>
-              <div><label class="f">End</label><div class="reasonbox" id="end-preview">—</div></div>
+              <div><label class="f" for="start_{{ k }}">Start</label><input type="date" id="start_{{ k }}" name="start_{{ k }}" min="{{ today().isoformat() }}" value="{{ vf.get('start_' ~ k) or today().isoformat() }}" required></div>
+              <div><label class="f" for="days_{{ k }}">Days</label><input type="number" id="days_{{ k }}" name="days_{{ k }}" min="1" max="365" value="{{ vf.get('days_' ~ k, '14') }}"><div class="hint">Blank = ongoing</div></div>
+              <div><label class="f">End</label><div class="reasonbox end-preview">—</div></div>
             </div>
-            <p class="hint" style="margin-top:10px">
-              {% if treat_dx %}Recorded under the existing diagnosis of {{ treat_dx.disease|lower }} ({{ treat_dx.dateofdiagnosis|d }}).
-              {% else %}Recorded under the new diagnosis of {{ treat_name|lower }}.{% endif %}</p>
           </div>
           <div class="stack">
             {% if ck.alerts %}
@@ -211,30 +207,32 @@
               <div class="stack" style="gap:8px; margin-top:10px">{% for a in grouped %}{{ alert_card(a) }}{% endfor %}</div>
             </div>
             <div>
-              <label class="f" for="reason">Reason to proceed <span class="req">required</span></label>
-              <textarea id="reason" name="reason" maxlength="1000" rows="2" placeholder="Short course, gastro-protection added, INR review booked">{{ vf.get('reason', '') }}</textarea>
+              <label class="f" for="reason_{{ k }}">Reason to proceed <span class="req">required</span></label>
+              <textarea id="reason_{{ k }}" name="reason_{{ k }}" maxlength="1000" rows="2" placeholder="Short course, gastro-protection added, INR review booked">{{ vf.get('reason_' ~ k, '') }}</textarea>
             </div>
             {% else %}
-            <div class="alertbox none"><b>No alerts found.</b> Nothing about this medicine is recorded against this patient's medicines, allergies, history or recent labs.</div>
+            <div class="alertbox none"><b>No alerts found.</b> Nothing about this medicine is recorded against this patient's medicines, allergies, history, recent labs or the other medicines ticked.</div>
             {% endif %}
           </div>
         </div>
       </div>
-      {% endif %}
+      {% endfor %}
+      {% if selected %}<p class="hint" style="margin-top:10px">
+        {% if treat_dx %}Recorded under the existing diagnosis of {{ treat_dx.disease|lower }} ({{ treat_dx.dateofdiagnosis|d }}).
+        {% else %}Recorded under the new diagnosis of {{ treat_name|lower }}.{% endif %}</p>{% endif %}
     {% endif %}
 
     <h3 class="vstep">5. Advice to patient <span class="muted small">optional: what you explained</span></h3>
     {% if selected %}
-    <button type="button" class="btn sm" id="advice-draft" style="margin-bottom:8px"
-            data-drug="{{ selected.genericname|lower }}" data-se="{{ selected.check.side_effects|join(', ') }}">Add how to take {{ selected.genericname|lower }} and its side effects</button>
+    <button type="button" class="btn sm" id="advice-draft" style="margin-bottom:8px">Add how to take {{ 'it' if selected|length == 1 else 'each medicine' }} and side effects</button>
     {% endif %}
     <textarea id="v-advice" name="advice" rows="3" maxlength="2000" aria-label="Advice to patient" placeholder="Rest and fluids. Return if breathless or fever lasts over 3 days.">{{ vf.get('advice', '') }}</textarea>
-    <div class="hint">Saved with the visit{% if selected %} and shown to the pharmacist, who can repeat it when handing over the medicine{% endif %}.</div>
+    <div class="hint">Saved with the visit{% if selected %} and shown to the pharmacist, who can repeat it when handing over the medicines{% endif %}.</div>
 
     <div class="row save-row">
       <label class="small" for="v-fu">Follow up in</label>
       <input type="number" id="v-fu" name="follow_up" min="1" max="365" style="width:80px" value="{{ vf.get('follow_up', '') }}"><span class="small muted">days</span>
-      <span style="margin-left:auto"><button class="btn primary" name="action" value="save">{{ 'Save visit and send to pharmacy' if selected else 'Save visit' }}</button></span>
+      <span style="margin-left:auto"><button class="btn primary" name="action" value="save">{% if selected %}Save visit and send {{ selected|length }} prescription{{ 's' if selected|length > 1 }} to pharmacy{% else %}Save visit{% endif %}</button></span>
     </div>
   </form>
   </div>

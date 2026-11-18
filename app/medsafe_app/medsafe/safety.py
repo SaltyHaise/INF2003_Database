@@ -7,6 +7,8 @@ For a patient and one or more candidate drugs, it finds:
   MongoDB     lab           latest lab result crossing a lab_rules threshold (aggregation + $lookup)
               history       past condition in patient_history (or a PostgreSQL diagnosis) that
                             makes the drug risky (HISTORY_RULES below)
+together() adds the same interaction and duplicate checks between medicines prescribed in
+the same visit, which aren't active medications yet.
 Active medications come from the v_active_medications view. "No alerts" only means nothing
 is recorded in our data, not that a drug is safe.
 """
@@ -209,6 +211,62 @@ def history_matches(nric):
         if ev:
             found.append((rule, ev))
     return found
+
+
+def together(drug_ids, picked):
+    """Interactions and shared ingredients between each drug in drug_ids and the medicines
+    picked in this visit (`picked`, not yet prescribed). Returns {drug_id: [alerts]};
+    each alert carries withDrugId so the caller can fill in withPrescriptionId on save."""
+    drug_ids, picked = [int(d) for d in drug_ids], [int(d) for d in picked]
+    out = {d: [] for d in drug_ids}
+    if not drug_ids or not picked:
+        return out
+    names = {r["drugid"]: r["genericname"] for r in query(
+        "SELECT DrugID, GenericName FROM Drug WHERE DrugID = ANY(%s)", (picked,))}
+    seen = set()
+    for r in query("""
+            WITH a AS (SELECT DrugID, IngredientID FROM Contains WHERE DrugID = ANY(%(ids)s)),
+                 b AS (SELECT DrugID, IngredientID FROM Contains WHERE DrugID = ANY(%(picked)s))
+            SELECT a.DrugID AS drug, b.DrugID AS other, ia.IngredientName AS ing_a, ib.IngredientName AS ing_b,
+                   x.Symptom, x.Direction, x.LabelSaysAvoid, x.ExampleSentence
+            FROM a JOIN b ON b.DrugID <> a.DrugID
+            JOIN DrugtoDrugInteraction x ON x.IngredientID_A = LEAST(a.IngredientID, b.IngredientID)
+                                        AND x.IngredientID_B = GREATEST(a.IngredientID, b.IngredientID)
+            JOIN ActiveIngredients ia ON ia.IngredientID = x.IngredientID_A
+            JOIN ActiveIngredients ib ON ib.IngredientID = x.IngredientID_B
+            ORDER BY x.LabelSaysAvoid DESC, x.Symptom""", {"ids": drug_ids, "picked": picked}):
+        key = (r["drug"], r["other"], r["symptom"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out[r["drug"]].append({
+            "type": "interaction", "severity": "avoid" if r["labelsaysavoid"] else "caution",
+            "ingredients": [r["ing_a"], r["ing_b"]], "withDrug": names[r["other"]], "withDrugId": r["other"],
+            "sameVisit": True, "effect": r["symptom"], "direction": r["direction"],
+            "message": _trim(r["examplesentence"]) or f"{r['ing_a']} + {r['ing_b']}: {effect_label(r['symptom'])}.",
+        })
+    for r in query("""
+            SELECT DISTINCT a.DrugID AS drug, b.DrugID AS other, ai.IngredientName
+            FROM Contains a JOIN Contains b ON b.IngredientID = a.IngredientID AND b.DrugID <> a.DrugID
+            JOIN ActiveIngredients ai ON ai.IngredientID = a.IngredientID
+            WHERE a.DrugID = ANY(%s) AND b.DrugID = ANY(%s)""", (drug_ids, picked)):
+        out[r["drug"]].append({
+            "type": "duplicate", "severity": "moderate", "ingredient": r["ingredientname"],
+            "withDrug": names[r["other"]], "withDrugId": r["other"], "sameVisit": True,
+            "message": f"{r['ingredientname']} is also in {names[r['other']]}, prescribed in this visit.",
+        })
+    return out
+
+
+def add_together(checks, picked):
+    """Merge together() into safety.check() results, in place."""
+    extra = together(list(checks), picked)
+    for d, alerts in extra.items():
+        v = checks[d]
+        v["interactions"] += [a for a in alerts if a["type"] == "interaction"]
+        v["duplicates"] += [a for a in alerts if a["type"] == "duplicate"]
+        v["alerts"] = sorted(v["alerts"] + alerts, key=lambda a: (SEVERITY_ORDER.get(a["severity"], 5), a["type"]))
+    return checks
 
 
 def mongo_safe_alerts(alerts):

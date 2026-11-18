@@ -28,14 +28,27 @@ CREATE INDEX IF NOT EXISTS ix_diagnosis_doctor ON Diagnosis (DoctorID);
 CREATE INDEX IF NOT EXISTS ix_patient_name_letter ON Patient ((upper(left(Name, 1))), Name);
 
 -- ---------------------------------------------------------------------------
+-- Who wrote each prescription. The prescriber is a fact about the prescription itself
+-- (PrescriptionID -> PrescriberID): a doctor can prescribe under a diagnosis another doctor
+-- made, so Diagnosis.DoctorID can't stand in for it. Existing rows are filled from the
+-- diagnosing doctor, which is who wrote them in the demo data.
+-- ---------------------------------------------------------------------------
+ALTER TABLE Prescription ADD COLUMN IF NOT EXISTS PrescriberID INT REFERENCES Doctor(DoctorID);
+UPDATE Prescription r SET PrescriberID = g.DoctorID
+FROM Diagnosis g WHERE g.DiagnosisID = r.DiagnosisID AND r.PrescriberID IS NULL;
+ALTER TABLE Prescription ALTER COLUMN PrescriberID SET NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_prescription_prescriber ON Prescription (PrescriberID);
+
+-- ---------------------------------------------------------------------------
 -- Views
 -- ---------------------------------------------------------------------------
--- Every prescription with everything a screen needs to show it.
+-- Every prescription with everything a screen needs to show it. DoctorID and doctor_name
+-- are the PRESCRIBER (who may differ from the doctor who made the diagnosis).
 CREATE OR REPLACE VIEW v_prescription_detail AS
 SELECT r.PrescriptionID, r.DiagnosisID, r.PrescriptionTemplateID, r.PrescriptionStart, r.PrescriptionEnd,
        r.PharmacistID, r.ReviewStatus, r.ReviewedAt, r.ReviewNotes,
        g.NRIC, p.Name AS patient_name, p.DOB, p.Sex,
-       g.DoctorID, doc.Name AS doctor_name, doc.Hospital,
+       r.PrescriberID AS DoctorID, doc.Name AS doctor_name, doc.Hospital,
        g.DiseaseID, ds.Name AS disease,
        d.DrugID, d.GenericName,
        t.dose_amount, t.dose_unit, t.frequency, t.route, t.dosage_form,
@@ -43,7 +56,7 @@ SELECT r.PrescriptionID, r.DiagnosisID, r.PrescriptionTemplateID, r.Prescription
 FROM Prescription r
 JOIN Diagnosis g            ON g.DiagnosisID = r.DiagnosisID
 JOIN Patient p              ON p.NRIC = g.NRIC
-JOIN Doctor doc             ON doc.DoctorID = g.DoctorID
+JOIN Doctor doc             ON doc.DoctorID = r.PrescriberID
 JOIN Disease ds             ON ds.DiseaseID = g.DiseaseID
 JOIN PrescriptionTemplate t ON t.PrescriptionTemplateID = r.PrescriptionTemplateID
 JOIN Drug d                 ON d.DrugID = t.DrugID

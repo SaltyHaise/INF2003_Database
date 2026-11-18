@@ -6,19 +6,24 @@
                       1. reason for visit (required)
                       2. examination: vitals, symptoms and findings (optional, folded)
                       3. diagnosis (required): one search box; the patient's conditions first
-                      4. medicines for that diagnosis, each safety-checked; pick one to
-                         set the dose, or prescribe nothing today
+                      4. medicines for that diagnosis, each safety-checked; tick one or
+                         more (each gets its own dose card, and the ticked medicines are
+                         checked against each other too), or none today
                       5. advice given to the patient (optional)
 
 The page refreshes itself (POST with action=refresh) when the diagnosis or medicine
 changes, so the medicine list stays in step without losing what was typed.
 
 Saving (action=save) is one unit of work across both databases:
-  PostgreSQL  new Diagnosis, PrescriptionTemplate (custom dose), Prescription  - held open
-  MongoDB     encounters: the visit, linked to the prescription
+  PostgreSQL  new Diagnosis, then per medicine a PrescriptionTemplate (custom dose) and a
+              Prescription, all in ONE transaction - held open
+  MongoDB     encounters: the visit, listing every prescription (prescriptionIds)
   PostgreSQL  COMMIT only after MongoDB accepted the visit (if the commit then fails,
               the visit document is removed again)
-  MongoDB     prescription_audit through the outbox (retried later if MongoDB is down)
+  MongoDB     one prescription_audit per prescription, through the outbox (retried later
+              if MongoDB is down)
+A visit with three medicines is still one visit: either all three prescriptions are saved
+with it, or none are.
 """
 import psycopg
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
@@ -40,19 +45,25 @@ def start():
     user = current_user()
     try:
         recent = list(mongo().encounters.find({"doctor.doctorId": user["id"]},
-                                              {"nric": 1, "visitDate": 1, "triage.chiefComplaint": 1, "visitType": 1})
-                      .sort("visitDate", -1).limit(5))
+                                              {"nric": 1, "visitDate": 1, "triage.chiefComplaint": 1, "visitType": 1,
+                                               "prescriptionIds": 1})
+                      .sort("visitDate", -1).limit(8))
+        mongo_ok = True
     except PyMongoError:
-        recent = []
+        recent, mongo_ok = [], False
+    records.attach_prescriptions(recent)
     names = {}
     if recent:
         names = {r["nric"]: r["name"] for r in query("SELECT NRIC, Name FROM Patient WHERE NRIC = ANY(%s)",
                                                      ([v["nric"] for v in recent],))}
     for v in recent:
         v["name"] = names.get(v["nric"], v["nric"])
-    rx_recent = query("""SELECT * FROM v_prescription_detail WHERE DoctorID = %s
-                         ORDER BY PrescriptionID DESC LIMIT 5""", (user["id"],))
-    return render_template("consult_start.html", recent=recent, rx_recent=rx_recent)
+    # prescriptions the pharmacist sent back: these need the doctor's attention
+    returned = query("""SELECT * FROM v_prescription_detail WHERE DoctorID = %s AND ReviewStatus = 'Rejected'
+                        ORDER BY ReviewedAt DESC NULLS LAST, PrescriptionID DESC LIMIT 5""", (user["id"],))
+    waiting = query_one("""SELECT count(*) AS n FROM v_prescription_detail
+                           WHERE DoctorID = %s AND ReviewStatus = 'Pending'""", (user["id"],))["n"]
+    return render_template("consult_start.html", recent=recent, returned=returned, waiting=waiting, mongo_ok=mongo_ok)
 
 
 @bp.route("/consult/<nric>")
@@ -90,15 +101,18 @@ def _diagnoses(f, nric):
     return existing, [], disease, disease["diseaseid"], errors
 
 
-def _drug_choice(f, treat):
-    """The medicine picked: a search pick wins; a pick made for another condition is dropped."""
-    if not treat:
-        return None
+def _drug_choices(f, treat):
+    """The medicines ticked, in the order picked, plus one just found by search. Picks made
+    for a different diagnosis are dropped when the diagnosis changes."""
+    if not treat or _int(f.get("treat_shown")) not in (None, treat):
+        return []
+    ticked = [d for d in (_int(v) for v in f.getlist("drug_ids")) if d]
+    # drug_order remembers the order of earlier picks, so cards don't jump around as the
+    # table re-sorts; newly ticked medicines go last
+    ids = [d for d in (_int(v) for v in f.getlist("drug_order")) if d in ticked] + ticked
     if _int(f.get("drug_search_id")):
-        return _int(f["drug_search_id"])
-    if _int(f.get("treat_shown")) not in (None, treat):
-        return None
-    return _int(f.get("drug_id"))
+        ids.append(_int(f["drug_search_id"]))
+    return list(dict.fromkeys(ids))[: doctor.MAX_PER_VISIT]
 
 
 def _render(nric, f=None, errors=None, status=200):
@@ -109,8 +123,7 @@ def _render(nric, f=None, errors=None, status=200):
     except PyMongoError:
         visits, labs, hist, mongo_ok = [], [], [], False
     existing, dx_ids, new_disease, treat, _ = _diagnoses(f, nric)
-    drug_id = _drug_choice(f, treat)
-    candidates, selected = doctor.drug_options(nric, treat, drug_id) if treat else ([], None)
+    candidates, selected = doctor.drug_options(nric, treat, _drug_choices(f, treat)) if treat else ([], [])
     dxs = list(existing.values())
     dx_names, history_lines = records.summary_lines(nric, dxs, hist)
     treat_dx = existing[dx_ids[0]] if dx_ids else None
@@ -120,14 +133,14 @@ def _render(nric, f=None, errors=None, status=200):
         vf=f, visit_errors=errors or [], treat=treat,
         treat_name=(new_disease["name"] if new_disease else treat_dx["disease"] if treat_dx else None), treat_dx=treat_dx,
         diagnosis=({"existing": existing[dx_ids[0]] if dx_ids else None} if treat else None),
-        candidates=candidates, selected=selected), status
+        candidates=candidates, selected=selected, max_meds=doctor.MAX_PER_VISIT), status
 
 
 @bp.route("/consult/<nric>", methods=["POST"])
 @role_required("doctor")
 def save(nric):
     """action=refresh re-draws the page with what was typed; action=save saves the visit
-    and, if a medicine was chosen, the prescription with it."""
+    and the prescriptions for the medicines ticked (none, one or several)."""
     records.patient(nric) or abort(404)
     f = request.form
     if f.get("action") != "save":
@@ -174,12 +187,18 @@ def save(nric):
     if not treat and not dx_errors:
         errors.append("Choose the diagnosis.")
 
-    # ---- 4. medicine (optional) ------------------------------------------------------
-    rx = None
-    drug_id = _drug_choice(f, treat)
-    if drug_id:
-        rx, rx_errors = doctor.parse_prescription(f, nric, drug_id)
-        errors += rx_errors
+    # ---- 4. medicines (optional, one dose card each) ---------------------------------
+    rxs = []
+    if treat:
+        if len(f.getlist("drug_ids")) > doctor.MAX_PER_VISIT:
+            errors.append(f"Prescribe at most {doctor.MAX_PER_VISIT} medicines in one visit.")
+        # the safety check runs again here, including between the medicines ticked
+        _, picked = doctor.drug_options(nric, treat, _drug_choices(f, treat))
+        for c in picked:
+            rx, rx_errors = doctor.parse_prescription(f, c, c["check"]["alerts"])
+            errors += rx_errors
+            if rx:
+                rxs.append(rx)
 
     # ---- 5. advice (optional) --------------------------------------------------------
     advice = f.get("advice", "").replace("\r\n", "\n").strip()[:2000]
@@ -189,7 +208,7 @@ def save(nric):
 
     # ---- save ------------------------------------------------------------------------
     conn = pg()
-    rx_id = rx_dx = None
+    saved = []   # (prescription id, diagnosis id, rx)
     try:
         with conn.cursor() as cur:
             if new_disease:
@@ -197,8 +216,9 @@ def save(nric):
                                VALUES (%s, %s, %s, CURRENT_DATE) RETURNING DiagnosisID""",
                             (nric, user["id"], new_disease["diseaseid"]))
                 dx_ids.append(cur.fetchone()["diagnosisid"])
-            if rx:
+            for rx in rxs:
                 rx_id, rx_dx, _ = doctor.insert_prescription(cur, nric, user["id"], treat, rx)
+                saved.append((rx_id, rx_dx, rx))
     except psycopg.Error as e:
         conn.rollback()
         return _render(nric, f, [f"PostgreSQL refused the visit: {e.diag.message_primary or e}"], 400)
@@ -207,9 +227,9 @@ def save(nric):
     note = exam.compose_note(complaint, history, exam_list, pain_score, findings)
     if not (history or exam_list or findings):
         note = f"{complaint}.\nAssessment: {', '.join(dx_names)}."
-    if rx:
-        t = rx["template"]
-        note += f"\nPrescribed: {rx['drug']['genericname'].lower()} {dose_text(t)}".rstrip()
+    if saved:
+        note += "\nPrescribed: " + "; ".join(
+            f"{rx['drug']['genericname'].lower()} {dose_text(rx['template'])}".rstrip() for _, _, rx in saved)
     if advice:
         note += f"\nAdvice: {advice}"
     consultation = {"note": note[:4000], "diagnosisIds": dx_ids, "formVersion": exam.FORM_VERSION}
@@ -230,7 +250,7 @@ def save(nric):
         "doctor": {"doctorId": user["id"], "name": user["name"], "hospital": (doc_row or {}).get("hospital") or ""},
         "triage": {"recordedAt": now(), "chiefComplaint": complaint},
         "consultation": consultation,
-        "prescriptionIds": [rx_id] if rx_id else [],
+        "prescriptionIds": [rx_id for rx_id, _, _ in saved],
     }
     if vitals:
         doc["triage"]["vitals"] = vitals
@@ -254,10 +274,18 @@ def save(nric):
     msg = f"Visit {eid} saved."
     if new_disease:
         msg += f" Diagnosis added: {new_disease['name']}."
-    if rx:
-        ok = doctor.write_audit(rx_id, rx_dx, nric, user, rx, eid, advice or None)
-        msg += f" Prescription {rx_id} for {rx['drug']['genericname']} sent to the pharmacy."
-        if not ok:
-            msg += " (The audit record will be saved when MongoDB is back.)"
+    if saved:
+        # alerts between medicines of this visit now point at the sibling prescription
+        rx_of = {rx["drug"]["drugid"]: rx_id for rx_id, _, rx in saved}
+        queued = False
+        for rx_id, rx_dx, rx in saved:
+            for a in rx["alerts"]:
+                if a.get("withDrugId") in rx_of:
+                    a["withPrescriptionId"] = rx_of[a["withDrugId"]]
+            queued |= not doctor.write_audit(rx_id, rx_dx, nric, user, rx, eid, advice or None)
+        names = ", ".join(f"{rx['drug']['genericname'].lower()} (#{rx_id})" for rx_id, _, rx in saved)
+        msg += f" {len(saved)} prescription{'s' if len(saved) > 1 else ''} sent to the pharmacy: {names}."
+        if queued:
+            msg += " (Audit records will be saved when MongoDB is back.)"
     flash(msg, "success")
     return redirect(url_for("patients.record", nric=nric) + "#visits")

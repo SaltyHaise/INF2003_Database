@@ -1,12 +1,12 @@
 {# One line describing an alert, in the shape stored in prescription_audit. #}
 {% macro alert_line(a) -%}
   {%- if a.type == 'interaction' -%}
-    <b>Interaction:</b> {{ a.ingredients|join(' + ') }} — {{ a.effect|effect }}{% if a.withDrug %} <span class="small">(with {{ a.withDrug }})</span>{% endif %}
+    <b>Interaction:</b> {{ a.ingredients|join(' + ') }} — {{ a.effect|effect }}{% if a.withDrug %} <span class="small">(with {{ a.withDrug }}{% if a.sameVisit %}, prescribed in the same visit{% endif %})</span>{% endif %}
     {%- if a.severity == 'avoid' %} <span class="chip ret">Label says avoid</span>{% endif %}
   {%- elif a.type == 'allergy' -%}
     <b>Allergy:</b> {{ a.ingredient }} — {{ a.reaction or 'reaction not recorded' }} ({{ a.severity }})
   {%- elif a.type == 'duplicate' -%}
-    <b>Duplicate:</b> already taking {{ a.ingredient }} ({{ a.withDrug }})
+    <b>Duplicate:</b> {% if a.sameVisit %}{{ a.ingredient }} is also in {{ a.withDrug }}, prescribed in the same visit{% else %}already taking {{ a.ingredient }} ({{ a.withDrug }}){% endif %}
   {%- elif a.type == 'lab' -%}
     <b>Lab:</b> {{ a.test|labname }} {{ a.value }} {{ a.unit }}{% if a.collectedAt %} on {{ a.collectedAt|d }}{% endif %} — {{ a.message }}
   {%- elif a.type == 'history' -%}
@@ -25,7 +25,7 @@
     <b>{{ a.ingredients|join(' + ') }}</b>
     {%- if a.avoid %} <span class="chip ret">Label says avoid</span>{% endif %}</div>
   <div class="effects">{% for e in a.effects %}<span class="echip">{{ e }}</span>{% endfor %}
-    {%- if a.withDrug %}<span class="awith">with {{ a.withDrug|lower }}</span>{% endif %}</div>
+    {%- if a.withDrug %}<span class="awith">with {{ a.withDrug|lower }}{% if a.sameVisit %}, prescribed in the same visit{% endif %}</span>{% endif %}</div>
   {%- if a.messages %}
   <details class="label-text"><summary>Label wording ({{ a.messages|length }})</summary>
     {% for m in a.messages %}<p>"{{ m }}"</p>{% endfor %}</details>
@@ -33,7 +33,7 @@
   {%- else %}
   <div class="acard-head"><span class="akind">{{ {'allergy': 'Allergy', 'duplicate': 'Duplicate', 'lab': 'Lab result', 'history': 'History'}.get(a.type, 'Alert') }}</span>
     {%- if a.type == 'allergy' %}<b>{{ a.ingredient }}</b> <span>{{ a.reaction or 'reaction not recorded' }}, {{ a.severity }}</span>
-    {%- elif a.type == 'duplicate' %}<b>{{ a.ingredient }}</b> <span>already taking it in {{ a.withDrug|lower }}</span>
+    {%- elif a.type == 'duplicate' %}<b>{{ a.ingredient }}</b> <span>{% if a.sameVisit %}also in {{ a.withDrug|lower }}, prescribed in the same visit{% else %}already taking it in {{ a.withDrug|lower }}{% endif %}</span>
     {%- elif a.type == 'lab' %}<b>{{ a.test|labname }} {{ a.value }} {{ a.unit }}</b> <span>{{ a.message }}{% if a.collectedAt %} · {{ a.collectedAt|d }}{% endif %}</span>
     {%- elif a.type == 'history' %}<b>{{ a.condition }}</b> <span>{{ a.message }}{% if a.when %} · {{ a.when|mon }}{% endif %}</span>
     {%- else %}<span>{{ a.message }}</span>{% endif %}</div>

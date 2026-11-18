@@ -116,7 +116,8 @@ def group_alerts(alerts):
         g = pairs.get(key)
         if g is None:
             g = pairs[key] = {"type": "interaction", "ingredients": list(key[0]), "withDrug": key[1],
-                              "effects": [], "messages": [], "avoid": False}
+                              "effects": [], "messages": [], "avoid": False,
+                              "sameVisit": bool(a.get("sameVisit"))}
             out.append(g)
         eff = effect_label(a.get("effect"))
         if eff and eff not in g["effects"]:

@@ -202,6 +202,7 @@ def record(nric):
     try:
         hist = records.history(nric)
         visits = records.encounters(nric, notes_q or None)
+        records.attach_prescriptions(visits)
         labs = records.labs(nric)
         mongo_ok = True
     except PyMongoError:

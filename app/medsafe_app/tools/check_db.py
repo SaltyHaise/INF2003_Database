@@ -108,9 +108,10 @@ def atomicity():
             inside = conn.execute("SELECT count(*) AS n FROM Diagnosis").fetchone()["n"]
             print(f"  1. INSERT Diagnosis {TEST_ID}: ok. Rows seen inside the transaction: {inside}")
             print("  2. INSERT Prescription with end date before start date (breaks ck_rx_dates) ...")
-            conn.execute("""INSERT INTO Prescription (PrescriptionID, DiagnosisID, PrescriptionTemplateID,
+            conn.execute("""INSERT INTO Prescription (PrescriptionID, DiagnosisID, PrescriberID, PrescriptionTemplateID,
                                                       PrescriptionStart, PrescriptionEnd, ReviewStatus)
-                            VALUES (%s, %s, %s, CURRENT_DATE, CURRENT_DATE - 7, 'Pending')""", (TEST_ID, TEST_ID, ref["tpl"]))
+                            VALUES (%s, %s, %s, %s, CURRENT_DATE, CURRENT_DATE - 7, 'Pending')""",
+                         (TEST_ID, TEST_ID, ref["doctor"], ref["tpl"]))
             conn.rollback()
             res["error"] = None
             print("    !! the bad prescription was accepted")

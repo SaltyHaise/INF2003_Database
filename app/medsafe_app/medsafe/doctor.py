@@ -2,10 +2,11 @@
 
 Prescribing happens inside the consultation: once the doctor has a diagnosis, the
 Consult page lists the drugs for it (ToAddress), each safety-checked against the
-patient; picking one opens the dose, dates and alerts. This module holds that logic:
+patient; ticking one or more opens a dose card for each. Medicines ticked in the same
+visit are also checked against each other. This module holds that logic:
 
   drug_options(...)        drugs for a condition, each with its safety check
-  parse_prescription(...)  validate dose (template or custom), dates, alerts + reason
+  parse_prescription(...)  validate one dose card (template or custom), dates, alerts + reason
   insert_prescription(...) PostgreSQL rows, inside the caller's transaction
   write_audit(...)         MongoDB prescription_audit (retried later if MongoDB is down)
 
@@ -38,39 +39,48 @@ def prescribe():
     return redirect(url_for("consult.visit", nric=nric) if nric else url_for("consult.start"))
 
 
-def drug_options(nric, disease_id, drug_id=None):
-    """Drugs linked to the condition, plus one picked by search, each checked against the
-    patient. Returns (candidates, selected): fewest alerts first, searched drug last."""
+MAX_PER_VISIT = 6
+
+
+def drug_options(nric, disease_id, drug_ids=()):
+    """Drugs linked to the condition, plus any picked by search, each checked against the
+    patient and against the other medicines picked in this visit.
+    Returns (candidates, selected): candidates fewest alerts first, searched drugs last;
+    selected in the order they were picked."""
+    drug_ids = list(dict.fromkeys(drug_ids))
     cands = query("""
         SELECT d.DrugID, d.GenericName FROM ToAddress ta JOIN Drug d ON d.DrugID = ta.DrugID
         WHERE ta.DiseaseID = %s ORDER BY d.GenericName""", (disease_id,))
     ids = [c["drugid"] for c in cands]
-    if drug_id and drug_id not in ids:
-        extra = query_one("SELECT DrugID, GenericName FROM Drug WHERE DrugID = %s", (drug_id,))
-        if extra:
+    missing = [d for d in drug_ids if d not in ids]
+    if missing:
+        for extra in query("SELECT DrugID, GenericName FROM Drug WHERE DrugID = ANY(%s)", (missing,)):
             extra["searched"] = True
             cands.append(extra)
-            ids.append(drug_id)
+            ids.append(extra["drugid"])
+    picked = [d for d in drug_ids if d in ids]
     templates = {}
     for t in query("""SELECT * FROM PrescriptionTemplate WHERE DrugID = ANY(%s)
                       ORDER BY DrugID, PrescriptionTemplateID""", (ids,)):
         templates.setdefault(t["drugid"], []).append(t)
-    checks = safety.check(nric, ids) if ids else {}
+    checks = safety.add_together(safety.check(nric, ids), picked) if ids else {}
     for c in cands:
         c["templates"] = templates.get(c["drugid"], [])
         c["check"] = checks[c["drugid"]]
+        c["picked"] = c["drugid"] in picked
     cands.sort(key=lambda c: (c.get("searched", False), len(c["check"]["alerts"]), c["genericname"]))
-    selected = next((c for c in cands if c["drugid"] == drug_id), None)
-    return cands, selected
+    by_id = {c["drugid"]: c for c in cands}
+    return cands, [by_id[d] for d in picked]
 
 
-def parse_prescription(f, nric, drug_id):
-    """Read the prescription part of the form. Returns (rx, errors); rx is None on errors.
-    The safety check is run again here: the page is never trusted."""
+def parse_prescription(f, drug, alerts):
+    """Read one medicine's dose card. Its fields are suffixed with the DrugID (template_1104,
+    days_1104, ...). `alerts` is the safety check, run again by the caller on save: the page
+    is never trusted. Returns (rx, errors); rx is None on errors."""
     errors = []
-    drug = query_one("SELECT DrugID, GenericName FROM Drug WHERE DrugID = %s", (drug_id,))
-    if not drug:
-        return None, ["That drug wasn't found. Choose it again."]
+    drug_id = drug["drugid"]
+    name = drug["genericname"].lower()
+    f = {k[: -len(f"_{drug_id}")]: v for k, v in f.items() if k.endswith(f"_{drug_id}")}
 
     choice = f.get("template", "")
     template, custom = None, None
@@ -80,14 +90,14 @@ def parse_prescription(f, nric, drug_id):
             if amount <= 0 or amount > 100000:
                 raise InvalidOperation
         except InvalidOperation:
-            errors.append("Enter the dose as a number, e.g. 500.")
+            errors.append(f"{name}: enter the dose as a number, e.g. 500.")
             amount = None
         unit = f.get("dose_unit", "").strip()[:20]
         freq = f.get("frequency", "").strip()[:50]
         if not unit:
-            errors.append("Enter the dose unit, e.g. mg or tablet.")
+            errors.append(f"{name}: enter the dose unit, e.g. mg or tablet.")
         if not freq:
-            errors.append("Enter how often, e.g. twice daily after food.")
+            errors.append(f"{name}: enter how often, e.g. twice daily after food.")
         custom = {"dose_amount": amount, "dose_unit": unit, "frequency": freq,
                   "route": (f.get("route") or "ORAL").strip().upper()[:50],
                   "dosage_form": (f.get("dosage_form") or "").strip().upper()[:80] or None}
@@ -95,28 +105,28 @@ def parse_prescription(f, nric, drug_id):
         template = query_one("SELECT * FROM PrescriptionTemplate WHERE PrescriptionTemplateID = %s AND DrugID = %s",
                              (_int(choice), drug_id))
         if not template:
-            errors.append("Choose a dose, or write your own.")
+            errors.append(f"{name}: choose a dose, or write your own.")
 
     try:
         start = date.fromisoformat(f.get("start", ""))
     except ValueError:
         start = None
-        errors.append("Enter a start date.")
+        errors.append(f"{name}: enter a start date.")
     days_raw = f.get("days", "").strip()
     days = _int(days_raw) if days_raw else None
     if days_raw and (days is None or not 1 <= days <= 365):
-        errors.append("Duration must be between 1 and 365 days, or left blank for ongoing.")
+        errors.append(f"{name}: duration must be between 1 and 365 days, or left blank for ongoing.")
     if start and start < today():
-        errors.append("The start date can't be in the past.")
+        errors.append(f"{name}: the start date can't be in the past.")
 
-    alerts = safety.check(nric, [drug_id])[drug_id]["alerts"]
     reason = f.get("reason", "").strip()
     if alerts and not reason:
         errors.append(f"There {'is 1 alert' if len(alerts) == 1 else f'are {len(alerts)} alerts'} for "
-                      f"{drug['genericname'].lower()}. Give a reason to proceed, or choose another medicine.")
+                      f"{name}. Give a reason to proceed, or untick it.")
     if errors:
         return None, errors
-    return {"drug": drug, "template": template, "custom": custom, "start": start,
+    return {"drug": {"drugid": drug_id, "genericname": drug["genericname"]}, "template": template,
+            "custom": custom, "start": start,
             "end": safety.end_date(start, days), "alerts": alerts, "reason": reason}, []
 
 
@@ -137,9 +147,10 @@ def insert_prescription(cur, nric, doctor_id, disease_id, rx):
                        VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
                     (rx["drug"]["drugid"], c["dose_amount"], c["dose_unit"], c["frequency"], c["route"], c["dosage_form"]))
         rx["template"] = cur.fetchone()
-    cur.execute("""INSERT INTO Prescription (DiagnosisID, PrescriptionTemplateID, PrescriptionStart, PrescriptionEnd, ReviewStatus)
-                   VALUES (%s, %s, %s, %s, 'Pending') RETURNING PrescriptionID""",
-                (row["diagnosisid"], rx["template"]["prescriptiontemplateid"], rx["start"], rx["end"]))
+    cur.execute("""INSERT INTO Prescription (DiagnosisID, PrescriberID, PrescriptionTemplateID, PrescriptionStart,
+                                             PrescriptionEnd, ReviewStatus)
+                   VALUES (%s, %s, %s, %s, %s, 'Pending') RETURNING PrescriptionID""",
+                (row["diagnosisid"], doctor_id, rx["template"]["prescriptiontemplateid"], rx["start"], rx["end"]))
     return cur.fetchone()["prescriptionid"], row["diagnosisid"], new_dx
 
 

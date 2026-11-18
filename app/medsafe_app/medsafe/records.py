@@ -97,6 +97,18 @@ def encounters(nric, search=None, limit=8):
     return list(cur)
 
 
+def attach_prescriptions(visits):
+    """Give each visit (MongoDB encounters) the prescriptions written in it, read from
+    PostgreSQL in one query by the visit's prescriptionIds. A visit and its prescriptions
+    then always show together. Sets v["rx"] (in the order the visit lists them)."""
+    ids = sorted({i for v in visits for i in v.get("prescriptionIds") or []})
+    rows = {r["prescriptionid"]: r for r in query(
+        "SELECT * FROM v_prescription_detail WHERE PrescriptionID = ANY(%s)", (ids,))} if ids else {}
+    for v in visits:
+        v["rx"] = [rows[i] for i in v.get("prescriptionIds") or [] if i in rows]
+    return visits
+
+
 def labs(nric):
     """Latest result of each test, with the last few values for a trend (MongoDB aggregation)."""
     return list(mongo().lab_results.aggregate([
