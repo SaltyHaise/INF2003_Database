@@ -1,13 +1,18 @@
-"""Sign-in as a doctor or pharmacist from the database, and role checks.
+"""Sign-in with a username and password, and role checks.
 
-This is a demo sign-in (pick who you are, no password). Every screen checks the role,
-so a pharmacist can't prescribe and a doctor can't approve.
+Logins live in AppUser (sql/app_objects_postgres.sql): a username, a salted password hash,
+and the doctor or pharmacist it belongs to. Every screen checks the role, so a pharmacist
+can't prescribe and a doctor can't approve.
 """
 from functools import wraps
 
 from flask import Blueprint, flash, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash, generate_password_hash
 
-from .db import query, query_one
+from .db import query_one
+
+# Checked when the username doesn't exist, so a wrong username takes as long as a wrong password.
+_DUMMY_HASH = generate_password_hash("not-a-real-password")
 
 bp = Blueprint("auth", __name__)
 
@@ -47,25 +52,34 @@ def home():
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        role, uid = request.form.get("role"), request.form.get("id", type=int)
-        if role == "doctor":
-            row = query_one("SELECT DoctorID AS id, Name AS name, Hospital AS place FROM Doctor WHERE DoctorID = %s", (uid,))
-        elif role == "pharmacist":
-            row = query_one("SELECT PharmacistID AS id, Name AS name FROM Pharmacist WHERE PharmacistID = %s", (uid,))
-        else:
-            row = None
-        if not row:
-            flash("Choose a doctor or pharmacist to sign in as.", "error")
-            return redirect(url_for("auth.login"))
-        session["user"] = {"role": role, "id": row["id"], "name": row["name"], "place": row.get("place")}
+        username = (request.form.get("username") or "").strip().lower()
+        password = request.form.get("password") or ""
+        row = query_one("""
+            SELECT u.PasswordHash,
+                   CASE WHEN u.DoctorID IS NOT NULL THEN 'doctor' ELSE 'pharmacist' END AS role,
+                   COALESCE(u.DoctorID, u.PharmacistID) AS id,
+                   COALESCE(d.Name, p.Name) AS name, d.Hospital AS place
+            FROM AppUser u
+            LEFT JOIN Doctor d     ON d.DoctorID = u.DoctorID
+            LEFT JOIN Pharmacist p ON p.PharmacistID = u.PharmacistID
+            WHERE u.Username = %s""", (username,))
+        ok = check_password_hash(row["passwordhash"] if row else _DUMMY_HASH, password)
+        if not (row and ok):
+            flash("Wrong username or password.", "error")
+            return render_template("login.html", username=username), 401
         nxt = request.args.get("next")
+        csrf = session.get("_csrf")
+        session.clear()  # a fresh session for the signed-in user
+        if csrf:
+            session["_csrf"] = csrf
+        session["user"] = {"role": row["role"], "id": row["id"], "name": row["name"], "place": row["place"]}
         return redirect(nxt if nxt and nxt.startswith("/") and not nxt.startswith("//") else url_for("auth.home"))
-    doctors = query("SELECT DoctorID AS id, Name AS name, Hospital FROM Doctor ORDER BY Name")
-    pharmacists = query("SELECT PharmacistID AS id, Name AS name FROM Pharmacist ORDER BY Name")
-    return render_template("login.html", doctors=doctors, pharmacists=pharmacists)
+    if current_user():
+        return redirect(url_for("auth.home"))
+    return render_template("login.html", username="")
 
 
 @bp.route("/logout", methods=["POST"])
 def logout():
-    session.pop("user", None)
+    session.clear()
     return redirect(url_for("auth.login"))

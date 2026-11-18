@@ -224,11 +224,14 @@ details.panel[open] > summary { margin-bottom: 12px; }
 .bar > span { display: block; height: 100%; background: var(--blue); }
 .bar.warn > span { background: var(--badge); }
 .empty { color: var(--muted); padding: 10px 0; }
-.login-card { max-width: 720px; margin: 40px auto; }
-.who-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
-.who-list button { text-align: left; font: inherit; background: #fff; border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
-.who-list button:hover { border-color: var(--blue); background: #f7faff; }
-.who-list small { display: block; color: var(--muted); }
+.login-card { max-width: 420px; margin: 40px auto; }
+.login-form { display: grid; gap: 14px; margin-top: 18px; }
+.login-form label { display: grid; gap: 6px; font-weight: 600; font-size: 14px; }
+.login-form input { font: inherit; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 8px; }
+.login-form input:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+.login-form .btn { justify-content: center; }
+.demo-logins { margin-top: 18px; font-size: 13px; }
+.demo-logins summary { cursor: pointer; }
 
 /* consult page: context on the left, visit form on the right */
 .consult-allergy { margin: 0; }

@@ -167,7 +167,12 @@ PG_DSN=postgresql://postgres:YOUR_PASSWORD@localhost:5432/medsafety
 python run.py
 ```
 
-Open **http://127.0.0.1:5000** and pick a doctor or pharmacist to sign in as (demo sign-in, no password).
+Open **http://127.0.0.1:5000** and sign in. On its first start the app creates one login per doctor and pharmacist (table `AppUser`, passwords stored as salted hashes):
+
+| Role | Usernames | Password |
+|---|---|---|
+| Doctor | `doctor1` … `doctor8` (e.g. `doctor3` = Dr Ganesh Iyer) | `medsafe123` |
+| Pharmacist | `pharmacist1` … `pharmacist5` (e.g. `pharmacist5` = Amanda Goh) | `medsafe123` |
 
 On every start, the app creates its own views, trigger and search indexes in PostgreSQL (`app/medsafe_app/sql/app_objects_postgres.sql`). Re-running the PostgreSQL setup script removes them; the next app start puts them back.
 

@@ -97,3 +97,32 @@ DROP TRIGGER IF EXISTS trg_check_review ON Prescription;
 CREATE TRIGGER trg_check_review
     BEFORE INSERT OR UPDATE OF ReviewStatus, ReviewNotes, PharmacistID, ReviewedAt ON Prescription
     FOR EACH ROW EXECUTE FUNCTION fn_check_review();
+
+-- ---------------------------------------------------------------------------
+-- Sign-in. One login per doctor or pharmacist. The table holds only what a login
+-- adds (username, password hash); the name and workplace stay in Doctor/Pharmacist,
+-- and the role is whichever ID is set, so neither can disagree with its source.
+-- Username -> everything else, so the table is in BCNF.
+-- Passwords are stored as salted scrypt hashes (werkzeug), never as text.
+-- ---------------------------------------------------------------------------
+-- Re-running the setup script drops Doctor/Pharmacist with CASCADE, which removes this
+-- table's foreign keys but not its rows; start it again in that case.
+DO $$
+BEGIN
+    IF to_regclass('appuser') IS NOT NULL THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                       WHERE conrelid = to_regclass('appuser') AND contype = 'f'
+                         AND confrelid = to_regclass('doctor')) THEN
+            DROP TABLE appuser;
+        END IF;
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS AppUser (
+    Username     VARCHAR(50) PRIMARY KEY,
+    PasswordHash TEXT NOT NULL,
+    DoctorID     INT UNIQUE REFERENCES Doctor(DoctorID) ON DELETE CASCADE,
+    PharmacistID INT UNIQUE REFERENCES Pharmacist(PharmacistID) ON DELETE CASCADE,
+    CONSTRAINT ck_appuser_one_person CHECK (num_nonnulls(DoctorID, PharmacistID) = 1),
+    CONSTRAINT ck_appuser_username CHECK (Username = lower(Username) AND Username ~ '^[a-z0-9._-]{3,50}$')
+);

@@ -4,16 +4,21 @@
 {% block content %}
 <div class="card login-card">
   <h1>Sign in to MedSafe</h1>
-  <p class="muted">Demo sign-in: choose who you are. Doctors prescribe; pharmacists review and dispense. All patient records are synthetic.</p>
-  <h2 style="margin-top:22px">Doctors</h2>
-  <form method="post" class="who-list" style="margin-top:10px">
-    {{ csrf() }}<input type="hidden" name="role" value="doctor">
-    {% for d in doctors %}<button name="id" value="{{ d.id }}">{{ d.name }}<small>{{ d.hospital }}</small></button>{% endfor %}
+  <p class="muted">Doctors prescribe; pharmacists review and dispense.</p>
+  <form method="post" class="login-form">
+    {{ csrf() }}
+    <label>Username
+      <input name="username" value="{{ username }}" autocomplete="username" autocapitalize="none" required{% if not username %} autofocus{% endif %}>
+    </label>
+    <label>Password
+      <input name="password" type="password" autocomplete="current-password" required{% if username %} autofocus{% endif %}>
+    </label>
+    <button class="btn primary" type="submit">Sign in</button>
   </form>
-  <h2 style="margin-top:22px">Pharmacists</h2>
-  <form method="post" class="who-list" style="margin-top:10px">
-    {{ csrf() }}<input type="hidden" name="role" value="pharmacist">
-    {% for p in pharmacists %}<button name="id" value="{{ p.id }}">{{ p.name }}<small>Pharmacy</small></button>{% endfor %}
-  </form>
+  <details class="muted demo-logins">
+    <summary>Demo accounts</summary>
+    <p>Doctors <code>doctor1</code>–<code>doctor8</code>, pharmacists <code>pharmacist1</code>–<code>pharmacist5</code>;
+       password <code>medsafe123</code>. All patient records are synthetic.</p>
+  </details>
 </div>
 {% endblock %}

@@ -12,6 +12,7 @@ import psycopg
 from flask import current_app, g
 from psycopg.rows import dict_row
 from pymongo import MongoClient
+from werkzeug.security import generate_password_hash
 
 _mongo_client = None
 
@@ -64,6 +65,25 @@ def _run_startup_sql():
     try:
         with psycopg.connect(current_app.config["PG_DSN"], autocommit=True) as conn:
             conn.execute(sql)
+            _seed_logins(conn)
     except psycopg.OperationalError as e:
         print(f"\n!! Could not connect to PostgreSQL: {e}\n   Check PG_DSN in your .env file.\n")
         raise
+
+
+DEMO_PASSWORD = "medsafe123"
+
+
+def _seed_logins(conn):
+    """Give every doctor and pharmacist without a login one: doctor<ID> / pharmacist<ID>,
+    password DEMO_PASSWORD (listed in the setup guide). Existing logins are left alone."""
+    missing = conn.execute("""
+        SELECT 'doctor' || d.DoctorID, d.DoctorID, NULL::int FROM Doctor d
+        WHERE NOT EXISTS (SELECT 1 FROM AppUser u WHERE u.DoctorID = d.DoctorID)
+        UNION ALL
+        SELECT 'pharmacist' || p.PharmacistID, NULL::int, p.PharmacistID FROM Pharmacist p
+        WHERE NOT EXISTS (SELECT 1 FROM AppUser u WHERE u.PharmacistID = p.PharmacistID)""").fetchall()
+    for username, doctor_id, pharmacist_id in missing:
+        conn.execute("INSERT INTO AppUser (Username, PasswordHash, DoctorID, PharmacistID) VALUES (%s, %s, %s, %s) "
+                     "ON CONFLICT (Username) DO NOTHING",
+                     (username, generate_password_hash(DEMO_PASSWORD), doctor_id, pharmacist_id))
